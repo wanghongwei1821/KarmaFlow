@@ -446,7 +446,8 @@ private fun SmsStatusCard(
 @Composable
 private fun TodayCard(state: LedgerUiState) {
     val balanceDaily = state.summary.currentBalanceDailyCents
-    val available = balanceDaily ?: state.summary.todayAvailableCents
+    val plannedDaily = state.summary.originalBalanceDailyCents
+        ?: state.summary.dailyTargetCents
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -456,7 +457,7 @@ private fun TodayCard(state: LedgerUiState) {
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 23.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (balanceDaily != null) "每天安心可花" else "今日可支配",
+                    "按账户余额：每天可花",
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .78f),
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.weight(1f),
@@ -474,14 +475,27 @@ private fun TodayCard(state: LedgerUiState) {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text(formatMoney(available), color = MaterialTheme.colorScheme.onPrimary, fontSize = 43.sp, fontWeight = FontWeight.Bold)
+            Text(
+                balanceDaily?.let(::formatMoney) ?: "尚未获取余额",
+                color = MaterialTheme.colorScheme.onPrimary,
+                fontSize = if (balanceDaily != null) 43.sp else 28.sp,
+                fontWeight = FontWeight.Bold,
+            )
+            if (balanceDaily == null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "设置账户余额后，将按余额和周期剩余天数计算",
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .72f),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             Spacer(Modifier.height(18.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .16f))
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 Metric(
-                    if (state.summary.originalBalanceDailyCents != null) "原计划 / 天" else "预算目标",
-                    formatMoney(state.summary.originalBalanceDailyCents ?: state.summary.dailyTargetCents),
+                    "按原预算计划：每天目标",
+                    formatMoney(plannedDaily),
                     light = true,
                     modifier = Modifier.weight(1f),
                 )
