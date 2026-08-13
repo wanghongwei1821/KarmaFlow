@@ -1,0 +1,269 @@
+package com.example.sizhang.sms
+
+import com.example.sizhang.data.TransactionKind
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.security.MessageDigest
+import java.time.DateTimeException
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+
+data class ParsedBankTransaction(
+    val amountCents: Long,
+    val kind: TransactionKind,
+    val occurredAt: Long,
+    val merchant: String?,
+    val cardLast4: String?,
+    val bank: String,
+    val sender: String,
+    val fingerprint: String,
+    val currency: String,
+)
+
+data class BankSmsParseResult(
+    val transaction: ParsedBankTransaction? = null,
+    val resultCode: String,
+    val balanceAfterCents: Long? = null,
+    val balanceObservedAt: Long = 0,
+)
+
+object BankSmsParser {
+    private val bankNames = listOf("中国银行", "中国银行股份有限公司", "中行", "BOC")
+    private val refundWords = listOf("退款", "退货", "冲正", "撤销", "退回")
+    private val expenseWords = listOf(
+        "消费", "支付", "扣款", "支出", "取现", "支取", "转出", "出账",
+        "POS", "快捷付", "银联交易", "发生交易", "交易成功", "交易",
+    )
+    private val hardIgnoreWords = listOf(
+        "验证码", "动态口令", "校验码", "登录密码", "短信密码", "激活码",
+    )
+    private val nonPurchaseWords = listOf("还款", "自动还款", "账单分期")
+    private val incomeWords = listOf(
+        "工资", "转入", "存入", "收入", "入账", "利息入账",
+    )
+    private val failedWords = listOf("失败", "未成功", "交易拒绝", "未完成")
+
+    private val keywordAmountRegex = Regex(
+        """(?:消费|支付|扣款|退款|退货|冲正|撤销|取现|支取|转出|出账|交易金额|金额)[^0-9]{0,20}(?:人民币|RMB|CNY|￥|¥)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:元)?""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val currencyAmountRegex = Regex(
+        """(?:人民币|RMB|CNY|￥|¥)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:元)?""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val foreignCurrencyAmountRegex = Regex(
+        """([A-Z]{3})\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:元)?""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val balanceRegex = Regex(
+        """(?:交易后余额|账户余额|余额)\s*(?:为|[:：])?\s*(?:人民币|RMB|CNY|￥|¥)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:元)?""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val cardRegex = Regex("""(?:尾号|末四位|卡号末四位|账号末四位)[^0-9]{0,8}([0-9]{4})(?![0-9])""")
+    private val directCreditCardRegex = Regex("""信用卡\s*([0-9]{4})(?![0-9])""")
+    private val parenthesizedCardRegex = Regex("""(?:卡|账户|账号)[（(\[](?:[*xX·•]+)?([0-9]{4})[）)\]]""")
+    private val maskedCardRegex = Regex("""(?:卡|账户|账号)[^，。,；;\n]{0,12}[*xX·•]{2,}([0-9]{4})(?![0-9])""")
+    private val merchantRegexes = listOf(
+        Regex("""(?:商户名称|商户|交易对方|收款方|对方户名)\s*[:：为]?\s*([^，。,；;\n]{2,40})"""),
+        Regex("""(?:在|于)\s*([^，。,；;\n]{2,32}?)\s*(?:消费|支付|发生交易)"""),
+    )
+    private val incomeChannelRegex = Regex("""收入[（(]([^）)\n]{2,30})[）)]""")
+    private val fullDateTimeRegex = Regex(
+        """(20[0-9]{2})[年/\-.]([01]?[0-9])[月/\-.]([0-3]?[0-9])日?\s*([0-2]?[0-9])[:：]([0-5][0-9])(?::([0-5][0-9]))?""",
+    )
+    private val fullDateRegex = Regex(
+        """(20[0-9]{2})[年/\-.]([01]?[0-9])[月/\-.]([0-3]?[0-9])日?""",
+    )
+    private val monthDayTimeRegex = Regex(
+        """([01]?[0-9])月([0-3]?[0-9])日\s*([0-2]?[0-9])[:：]([0-5][0-9])(?::([0-5][0-9]))?""",
+    )
+    private val monthDayRegex = Regex("""([01]?[0-9])月([0-3]?[0-9])日""")
+
+    fun parse(
+        sender: String,
+        body: String,
+        receivedAt: Long,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+    ): ParsedBankTransaction? = parseDetailed(sender, body, receivedAt, zoneId).transaction
+
+    fun parseDetailed(
+        sender: String,
+        body: String,
+        receivedAt: Long,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+    ): BankSmsParseResult {
+        val cleanBody = body.replace('\u00A0', ' ').trim()
+        if (cleanBody.isBlank()) return BankSmsParseResult(resultCode = "empty")
+        if (!isBankOfChina(sender, cleanBody)) return BankSmsParseResult(resultCode = "not_boc")
+        val balanceAfterCents = extractBalanceCents(cleanBody)
+        fun result(
+            resultCode: String,
+            transaction: ParsedBankTransaction? = null,
+        ) = BankSmsParseResult(
+            transaction = transaction,
+            resultCode = resultCode,
+            balanceAfterCents = balanceAfterCents,
+            balanceObservedAt = receivedAt,
+        )
+        if (hardIgnoreWords.any(cleanBody::contains)) {
+            return result(resultCode = "security_code")
+        }
+        if (failedWords.any(cleanBody::contains)) {
+            return result(resultCode = "failed_transaction")
+        }
+
+        val isRefund = refundWords.any(cleanBody::contains)
+        val isIncome = incomeWords.any(cleanBody::contains)
+        val hasExpenseSignal = expenseWords.any { cleanBody.contains(it, ignoreCase = true) }
+        if (!isRefund && !isIncome && !hasExpenseSignal) {
+            return result(resultCode = "no_expense_signal")
+        }
+        if (!isRefund && !isIncome && nonPurchaseWords.any(cleanBody::contains)) {
+            return result(resultCode = "repayment")
+        }
+
+        val amount = extractAmount(cleanBody)
+            ?: return result(resultCode = "amount_not_found")
+        val amountCents = amount.second
+        if (amountCents <= 0L) return result(resultCode = "invalid_amount")
+
+        val occurredAt = extractOccurredAt(cleanBody, receivedAt, zoneId)
+        val normalizedSender = sender.trim().ifBlank { "95566" }
+        val parsed = ParsedBankTransaction(
+            amountCents = amountCents,
+            kind = when {
+                isRefund -> TransactionKind.REFUND
+                isIncome -> TransactionKind.INCOME
+                else -> TransactionKind.EXPENSE
+            },
+            occurredAt = occurredAt,
+            merchant = extractMerchant(cleanBody, isIncome),
+            cardLast4 = cardRegex.find(cleanBody)?.groupValues?.get(1)
+                ?: directCreditCardRegex.find(cleanBody)?.groupValues?.get(1)
+                ?: parenthesizedCardRegex.find(cleanBody)?.groupValues?.get(1)
+                ?: maskedCardRegex.find(cleanBody)?.groupValues?.get(1),
+            bank = "中国银行",
+            sender = normalizedSender,
+            fingerprint = fingerprint(normalizedSender, cleanBody, receivedAt),
+            currency = amount.first,
+        )
+        return result(
+            transaction = parsed,
+            resultCode = if (isIncome) "income_recorded" else "recorded",
+        )
+    }
+
+    private fun isBankOfChina(sender: String, body: String): Boolean {
+        val senderDigits = sender.filter(Char::isDigit)
+        return senderDigits.contains("95566") || bankNames.any { body.contains(it, ignoreCase = true) }
+    }
+
+    private fun extractAmount(body: String): Pair<String, Long>? {
+        foreignCurrencyAmountRegex.find(body)?.let { match ->
+            val currency = match.groupValues[1].uppercase()
+            if (currency != "CNY" && currency != "RMB") {
+                return parseCents(match.groupValues[2])?.let { currency to it }
+            }
+        }
+        val match = keywordAmountRegex.find(body) ?: currencyAmountRegex.find(body) ?: return null
+        return parseCents(match.groupValues[1])?.let { "CNY" to it }
+    }
+
+    private fun extractBalanceCents(body: String): Long? {
+        val match = balanceRegex.find(body) ?: return null
+        return parseCents(match.groupValues[1])
+    }
+
+    private fun parseCents(value: String): Long? {
+        return try {
+            BigDecimal(value.replace(",", ""))
+                .movePointRight(2)
+                .setScale(0, RoundingMode.HALF_UP)
+                .longValueExact()
+        } catch (_: ArithmeticException) {
+            null
+        } catch (_: NumberFormatException) {
+            null
+        }
+    }
+
+    private fun extractMerchant(body: String, isIncome: Boolean): String? {
+        if (body.contains("网上支付")) return "网上支付"
+        if (isIncome) {
+            incomeChannelRegex.find(body)?.groupValues?.get(1)?.trim()?.let { return it }
+            if (body.contains("银联入账")) return "银联入账"
+            if (body.contains("工资")) return "工资收入"
+            if (body.contains("利息入账")) return "利息入账"
+        }
+        return merchantRegexes.firstNotNullOfOrNull { regex ->
+            regex.find(body)?.groupValues?.get(1)?.trim()?.trimEnd('。', '，', ',', ';', '；')
+                ?.takeIf { candidate ->
+                    candidate.length in 2..40 &&
+                        !candidate.contains("余额") &&
+                        !candidate.contains("人民币")
+                }
+        }
+    }
+
+    private fun extractOccurredAt(body: String, receivedAt: Long, zoneId: ZoneId): Long {
+        val received = Instant.ofEpochMilli(receivedAt).atZone(zoneId)
+        try {
+            fullDateTimeRegex.find(body)?.let { match ->
+                return LocalDateTime.of(
+                    match.groupValues[1].toInt(),
+                    match.groupValues[2].toInt(),
+                    match.groupValues[3].toInt(),
+                    match.groupValues[4].toInt(),
+                    match.groupValues[5].toInt(),
+                    match.groupValues[6].ifBlank { "0" }.toInt(),
+                ).atZone(zoneId).toInstant().toEpochMilli()
+            }
+            monthDayTimeRegex.find(body)?.let { match ->
+                var candidate = LocalDateTime.of(
+                    received.year,
+                    match.groupValues[1].toInt(),
+                    match.groupValues[2].toInt(),
+                    match.groupValues[3].toInt(),
+                    match.groupValues[4].toInt(),
+                    match.groupValues[5].ifBlank { "0" }.toInt(),
+                ).atZone(zoneId)
+                if (candidate.isAfter(received.plusDays(2))) candidate = candidate.minusYears(1)
+                return candidate.toInstant().toEpochMilli()
+            }
+            fullDateRegex.find(body)?.let { match ->
+                return LocalDateTime.of(
+                    match.groupValues[1].toInt(),
+                    match.groupValues[2].toInt(),
+                    match.groupValues[3].toInt(),
+                    12,
+                    0,
+                ).atZone(zoneId).toInstant().toEpochMilli()
+            }
+            monthDayRegex.find(body)?.let { match ->
+                var candidate = LocalDateTime.of(
+                    received.year,
+                    match.groupValues[1].toInt(),
+                    match.groupValues[2].toInt(),
+                    12,
+                    0,
+                ).atZone(zoneId)
+                if (candidate.isAfter(received.plusDays(2))) candidate = candidate.minusYears(1)
+                return candidate.toInstant().toEpochMilli()
+            }
+        } catch (_: DateTimeException) {
+            // A malformed date should not discard an otherwise valid transaction.
+        } catch (_: NumberFormatException) {
+            // Fall back to the SMS timestamp.
+        }
+        return receivedAt
+    }
+
+    private fun fingerprint(sender: String, body: String, receivedAt: Long): String {
+        val normalizedBody = body.lowercase().replace(Regex("""\s+"""), "")
+        val input = "$sender|$normalizedBody|$receivedAt"
+        return MessageDigest.getInstance("SHA-256")
+            .digest(input.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte) }
+    }
+}
