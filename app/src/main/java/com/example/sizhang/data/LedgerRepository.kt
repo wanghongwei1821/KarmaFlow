@@ -39,6 +39,9 @@ class LedgerRepository(
     suspend fun updateBalanceManually(amountCents: Long) =
         accountBalanceStore.updateManually(amountCents)
 
+    suspend fun ensureDailyBalanceSnapshot(nowMillis: Long = System.currentTimeMillis()) =
+        accountBalanceStore.ensureDailySnapshot(nowMillis)
+
     suspend fun recordSmsAttempt(sender: String, resultCode: String) =
         smsMonitorStore.record(sender, resultCode)
 

@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 data class LedgerUiState(
@@ -26,6 +27,11 @@ data class LedgerUiState(
 class LedgerViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = (application as PrivateLedgerApplication).repository
     private val now = MutableStateFlow(System.currentTimeMillis())
+    private var smsSyncJob: Job? = null
+
+    init {
+        viewModelScope.launch { repository.ensureDailyBalanceSnapshot(now.value) }
+    }
 
     val uiState = combine(
         repository.transactions,
@@ -42,6 +48,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 config = budget,
                 nowMillis = currentTime,
                 currentBalanceCents = accountBalance.amountCents,
+                dayStartBalanceCents = accountBalance.dayStartAmountCents,
             ),
             smsMonitor = smsMonitor,
             accountBalance = accountBalance,
@@ -53,7 +60,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     fun refreshClock() {
-        now.value = System.currentTimeMillis()
+        val currentTime = System.currentTimeMillis()
+        now.value = currentTime
+        viewModelScope.launch { repository.ensureDailyBalanceSnapshot(currentTime) }
     }
 
     fun updateBudget(config: BudgetConfig) {
@@ -69,7 +78,8 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun syncRecentSms() {
-        viewModelScope.launch {
+        if (smsSyncJob?.isActive == true) return
+        smsSyncJob = viewModelScope.launch {
             SmsInboxSynchronizer(getApplication(), repository).syncRecent()
         }
     }

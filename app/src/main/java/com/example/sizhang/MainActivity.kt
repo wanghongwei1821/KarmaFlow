@@ -12,7 +12,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,11 +48,12 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,11 +63,18 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -72,6 +84,7 @@ import androidx.lifecycle.Lifecycle
 import com.example.sizhang.data.BudgetConfig
 import com.example.sizhang.data.BudgetItem
 import com.example.sizhang.data.BalanceSource
+import com.example.sizhang.ui.BudgetCalculator
 import com.example.sizhang.ui.LedgerUiState
 import com.example.sizhang.ui.LedgerViewModel
 import com.example.sizhang.ui.PrivateLedgerTheme
@@ -83,6 +96,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.roundToLong
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -107,6 +121,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.refreshClock()
+        viewModel.syncRecentSms()
     }
 }
 
@@ -141,6 +156,7 @@ private fun LedgerScreen(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         readSmsPermissionGranted = granted
+        if (granted) onSyncRecentSms()
     }
     var showBudgetEditor by rememberSaveable { mutableStateOf(false) }
     var showBalanceEditor by rememberSaveable { mutableStateOf(false) }
@@ -157,10 +173,6 @@ private fun LedgerScreen(
             Manifest.permission.READ_SMS,
         ) == PackageManager.PERMISSION_GRANTED
     }
-    LaunchedEffect(readSmsPermissionGranted) {
-        if (readSmsPermissionGranted) onSyncRecentSms()
-    }
-
     val openSystemSettings = {
         context.startActivity(
             Intent(
@@ -250,7 +262,15 @@ private fun LedgerScreen(
                     )
                 }
                 item { TodayCard(state) }
+                item { TomorrowForecastCard(state) }
+                if (
+                    state.summary.tomorrowAvailableCents != null &&
+                    (state.summary.tomorrowDistributableCents ?: 0L) > 0L
+                ) {
+                    item { TodaySpendPreviewCard(state) }
+                }
                 item { AccountOverviewCard(state, onEdit = { showBalanceEditor = true }) }
+                item { SpendingTrendCard(state) }
             }
         }
     }
@@ -380,7 +400,7 @@ private fun SmsStatusCard(
         "sync_no_new" -> "短信同步完成" to "找到的中行消费短信都已记过，没有重复添加"
         "sync_balance" -> "余额同步完成" to "已从最新的中行短信读取账户余额"
         "sync_unrecognized" -> "已读到中行短信，但未识别消费" to "可能需要继续补充短信格式"
-        "sync_none" -> "短信同步完成" to "最近45天未找到发件号码含95566的短信"
+        "sync_none" -> "短信同步完成" to "最近45天未找到95566或带中国银行签名的短信"
         "sync_error" -> "短信同步失败" to "手机短信服务暂时不可读取，请稍后重试"
         else -> "95566 短信监听已开启" to "等待下一条新短信；安装前的历史短信不会自动导入"
     }
@@ -434,7 +454,7 @@ private fun SmsStatusCard(
             }
             if (!canSync) {
                 Text(
-                    "点击同步后才会申请读取权限；仅扫描最近45天发件号码含95566的短信，正文不会保存。",
+                    "点击同步后才会申请读取权限；仅补扫最近45天的95566或带中国银行签名的短信，正文不会保存。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -446,8 +466,7 @@ private fun SmsStatusCard(
 @Composable
 private fun TodayCard(state: LedgerUiState) {
     val balanceDaily = state.summary.currentBalanceDailyCents
-    val plannedDaily = state.summary.originalBalanceDailyCents
-        ?: state.summary.dailyTargetCents
+    val available = balanceDaily ?: state.summary.todayAvailableCents
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -457,7 +476,7 @@ private fun TodayCard(state: LedgerUiState) {
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 23.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "按账户余额：每天可花",
+                    if (balanceDaily != null) "今日可用 · 明日更新" else "今日可支配",
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .78f),
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.weight(1f),
@@ -475,31 +494,358 @@ private fun TodayCard(state: LedgerUiState) {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text(
-                balanceDaily?.let(::formatMoney) ?: "尚未获取余额",
+            AnimatedMoneyText(
+                cents = available,
                 color = MaterialTheme.colorScheme.onPrimary,
-                fontSize = if (balanceDaily != null) 43.sp else 28.sp,
+                fontSize = 43.sp,
                 fontWeight = FontWeight.Bold,
+                label = "today-available",
             )
-            if (balanceDaily == null) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "设置账户余额后，将按余额和周期剩余天数计算",
-                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .72f),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
             Spacer(Modifier.height(18.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .16f))
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 Metric(
-                    "按原预算计划：每天目标",
-                    formatMoney(plannedDaily),
+                    if (state.summary.originalBalanceDailyCents != null) "原计划 / 天" else "预算目标",
+                    state.summary.originalBalanceDailyCents ?: state.summary.dailyTargetCents,
                     light = true,
                     modifier = Modifier.weight(1f),
                 )
-                Metric("今日已消费", formatMoney(state.summary.todaySpentCents), light = true, modifier = Modifier.weight(1f))
+                Metric(
+                    "今日已消费",
+                    state.summary.todaySpentCents,
+                    light = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TomorrowForecastCard(state: LedgerUiState) {
+    val forecast = state.summary.tomorrowAvailableCents
+    val forecastDate = state.summary.tomorrowDate
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .72f),
+        ),
+        shape = RoundedCornerShape(24.dp),
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("明", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(
+                        if (forecastDate != null) {
+                            "${forecastDate.monthValue}月${forecastDate.dayOfMonth}日预估可花"
+                        } else {
+                            "明日预知"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (forecast != null) {
+                        AnimatedMoneyText(
+                            cents = forecast,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            label = "tomorrow-forecast",
+                        )
+                    } else {
+                        Text(
+                            "本周期暂无明日额度",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Text(
+                        if (forecast != null) {
+                            "已结合今天的实时消费，继续消费会更新此预估"
+                        } else {
+                            "进入下一周期后会重新开始预测"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TodaySpendPreviewCard(state: LedgerUiState) {
+    val sliderMaxCents = 200_000L
+    var previewExtraText by rememberSaveable(state.summary.tomorrowDate) { mutableStateOf("0") }
+    val previewExtraCents = parseMoneyToCents(previewExtraText) ?: 0L
+    val sliderCents = previewExtraCents.coerceIn(0L, sliderMaxCents)
+    val previewFraction = (sliderCents.toDouble() / sliderMaxCents).toFloat()
+    val previewTomorrowCents = BudgetCalculator.forecastTomorrowAvailable(
+        distributableCents = state.summary.tomorrowDistributableCents,
+        remainingDays = state.summary.tomorrowRemainingDays,
+        additionalSpendCents = previewExtraCents,
+    ) ?: return
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = RoundedCornerShape(24.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "今日消费预览",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "不会修改真实账目",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            OutlinedTextField(
+                value = previewExtraText,
+                onValueChange = { candidate ->
+                    if (candidate.matches(Regex("""[0-9]{0,9}(?:\.[0-9]{0,2})?"""))) {
+                        previewExtraText = candidate
+                    }
+                },
+                label = { Text("假设今天再花") },
+                prefix = { Text("¥") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                supportingText = { Text("滑块固定为 ¥0–¥2,000，也可手动输入更大金额") },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Slider(
+                value = previewFraction,
+                onValueChange = { fraction ->
+                    val rawCents = (sliderMaxCents * fraction.coerceIn(0f, 1f)).roundToLong()
+                    val roundedCents = ((rawCents + 50L) / 100L) * 100L
+                    previewExtraText = centsToEditText(roundedCents.coerceAtMost(sliderMaxCents))
+                },
+                valueRange = 0f..1f,
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = .20f),
+                ),
+            )
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "¥0",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "¥2,000",
+                    modifier = Modifier.weight(1f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "按以上消费，明日预计可花",
+                    modifier = Modifier.weight(1f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                AnimatedMoneyText(
+                    cents = previewTomorrowCents,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    label = "preview-tomorrow",
+                    durationMillis = 180,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpendingTrendCard(state: LedgerUiState) {
+    val points = state.summary.dailySpending
+    val actualColor = MaterialTheme.colorScheme.primary
+    val expectedColor = MaterialTheme.colorScheme.secondary
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    val average = if (points.isEmpty()) 0L else points.sumOf { it.actualCents } / points.size
+    val peak = points.maxOfOrNull { it.actualCents } ?: 0L
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = RoundedCornerShape(26.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column {
+                Text("每日预计与实际花费", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (points.isEmpty()) "周期开始后生成" else "最近 ${points.size} 天 · 人民币净消费",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (points.isNotEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Box(Modifier.size(9.dp).background(actualColor, CircleShape))
+                    Text("实际", style = MaterialTheme.typography.bodySmall)
+                    Box(Modifier.size(9.dp).background(expectedColor, CircleShape))
+                    Text("预计", style = MaterialTheme.typography.bodySmall)
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "实际日均 ",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        AnimatedMoneyText(
+                            cents = average,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            label = "trend-average",
+                        )
+                    }
+                }
+            }
+            if (points.isEmpty()) {
+                Text(
+                    "当前预算周期尚未开始，之后每天的消费会在这里形成曲线。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(168.dp),
+                ) {
+                    val left = 8f
+                    val right = size.width - 8f
+                    val top = 10f
+                    val bottom = size.height - 12f
+                    val chartWidth = (right - left).coerceAtLeast(1f)
+                    val chartHeight = (bottom - top).coerceAtLeast(1f)
+                    repeat(4) { index ->
+                        val y = top + chartHeight * index / 3f
+                        drawLine(
+                            color = gridColor.copy(alpha = .72f),
+                            start = Offset(left, y),
+                            end = Offset(right, y),
+                            strokeWidth = 1.2f,
+                        )
+                    }
+                    val maxAmount = points.maxOf { point ->
+                        maxOf(point.actualCents, point.expectedCents)
+                    }.coerceAtLeast(1L).toFloat()
+                    val actualPath = Path()
+                    val expectedPath = Path()
+                    points.forEachIndexed { index, point ->
+                        val x = if (points.size == 1) {
+                            left + chartWidth / 2f
+                        } else {
+                            left + chartWidth * index / (points.size - 1).toFloat()
+                        }
+                        val actualY = bottom - chartHeight * (point.actualCents / maxAmount)
+                        val expectedY = bottom - chartHeight * (point.expectedCents / maxAmount)
+                        if (index == 0) {
+                            actualPath.moveTo(x, actualY)
+                            expectedPath.moveTo(x, expectedY)
+                        } else {
+                            actualPath.lineTo(x, actualY)
+                            expectedPath.lineTo(x, expectedY)
+                        }
+                    }
+                    drawPath(
+                        path = expectedPath,
+                        color = expectedColor,
+                        style = Stroke(
+                            width = 3.2f,
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round,
+                        ),
+                    )
+                    drawPath(
+                        path = actualPath,
+                        color = actualColor,
+                        style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                    )
+                    points.forEachIndexed { index, point ->
+                        val x = if (points.size == 1) {
+                            left + chartWidth / 2f
+                        } else {
+                            left + chartWidth * index / (points.size - 1).toFloat()
+                        }
+                        val actualY = bottom - chartHeight * (point.actualCents / maxAmount)
+                        val expectedY = bottom - chartHeight * (point.expectedCents / maxAmount)
+                        drawCircle(color = expectedColor, radius = 3.6f, center = Offset(x, expectedY))
+                        drawCircle(color = actualColor, radius = 4.5f, center = Offset(x, actualY))
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    val first = points.first().date
+                    val last = points.last().date
+                    Text(
+                        "${first.monthValue}/${first.dayOfMonth}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "最高 ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        AnimatedMoneyText(
+                            cents = peak,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            label = "trend-peak",
+                        )
+                    }
+                    Text(
+                        "${last.monthValue}/${last.dayOfMonth}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
@@ -531,10 +877,15 @@ private fun AccountOverviewCard(state: LedgerUiState, onEdit: () -> Unit) {
                 ) { Text("¥", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 20.sp) }
                 Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
                     Text("中国银行余额", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        balance.amountCents?.let(::formatMoney) ?: "等待短信更新",
-                        style = MaterialTheme.typography.headlineMedium,
-                    )
+                    if (balance.amountCents != null) {
+                        AnimatedMoneyText(
+                            cents = balance.amountCents,
+                            style = MaterialTheme.typography.headlineMedium,
+                            label = "account-balance",
+                        )
+                    } else {
+                        Text("等待短信更新", style = MaterialTheme.typography.headlineMedium)
+                    }
                 }
                 TextButton(onClick = onEdit) { Text("编辑") }
             }
@@ -553,11 +904,19 @@ private fun AccountOverviewCard(state: LedgerUiState, onEdit: () -> Unit) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("本周期", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                Text(
-                    "目标留存 ${formatMoney(state.summary.targetEndingBalanceCents)}",
-                    color = MaterialTheme.colorScheme.secondary,
-                    style = MaterialTheme.typography.labelMedium,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "目标留存 ",
+                        color = MaterialTheme.colorScheme.secondary,
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    AnimatedMoneyText(
+                        cents = state.summary.targetEndingBalanceCents,
+                        color = MaterialTheme.colorScheme.secondary,
+                        style = MaterialTheme.typography.labelMedium,
+                        label = "target-ending-balance",
+                    )
+                }
             }
             if (cycleStart != null && cycleEnd != null) {
                 Text(
@@ -575,28 +934,46 @@ private fun AccountOverviewCard(state: LedgerUiState, onEdit: () -> Unit) {
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OverviewMetric("起始", startingBalance?.let(::formatMoney) ?: "未设置", Modifier.weight(1f))
-                OverviewMetric("净支出", formatMoney(state.summary.monthSpentCents), Modifier.weight(1f))
-                OverviewMetric("预留", formatMoney(state.summary.reservedCents), Modifier.weight(1f))
+                OverviewMetric("起始", startingBalance, Modifier.weight(1f), "未设置")
+                OverviewMetric("净支出", state.summary.monthSpentCents, Modifier.weight(1f))
+                OverviewMetric("预留", state.summary.reservedCents, Modifier.weight(1f))
             }
         }
     }
 }
 
 @Composable
-private fun OverviewMetric(label: String, value: String, modifier: Modifier = Modifier) {
+private fun OverviewMetric(
+    label: String,
+    valueCents: Long?,
+    modifier: Modifier = Modifier,
+    missingValue: String = "—",
+) {
     Column(
         modifier = modifier
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .72f), RoundedCornerShape(14.dp))
             .padding(horizontal = 10.dp, vertical = 10.dp),
     ) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (valueCents != null) {
+            AnimatedMoneyText(
+                cents = valueCents,
+                style = MaterialTheme.typography.labelLarge,
+                label = "overview-$label",
+            )
+        } else {
+            Text(
+                missingValue,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
 @Composable
-private fun Metric(label: String, value: String, modifier: Modifier = Modifier, light: Boolean = false) {
+private fun Metric(label: String, valueCents: Long, modifier: Modifier = Modifier, light: Boolean = false) {
     Column(modifier) {
         Text(
             label,
@@ -604,13 +981,42 @@ private fun Metric(label: String, value: String, modifier: Modifier = Modifier, 
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
-        Text(
-            value,
+        AnimatedMoneyText(
+            cents = valueCents,
             color = if (light) MaterialTheme.colorScheme.onPrimary
                 else MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.SemiBold,
+            label = "metric-$label",
         )
     }
+}
+
+@Composable
+private fun AnimatedMoneyText(
+    cents: Long,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    fontSize: TextUnit = TextUnit.Unspecified,
+    fontWeight: FontWeight? = null,
+    style: TextStyle = TextStyle.Default,
+    label: String,
+    durationMillis: Int = 420,
+) {
+    val animatedCents by animateFloatAsState(
+        targetValue = cents.toFloat(),
+        animationSpec = tween(durationMillis = durationMillis, easing = FastOutSlowInEasing),
+        label = label,
+    )
+    Text(
+        text = formatMoney(animatedCents.roundToLong()),
+        modifier = modifier,
+        color = color,
+        fontSize = fontSize,
+        fontWeight = fontWeight,
+        style = style,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 @Composable

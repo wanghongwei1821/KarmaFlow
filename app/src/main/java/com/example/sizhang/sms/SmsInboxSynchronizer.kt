@@ -43,8 +43,8 @@ class SmsInboxSynchronizer(
             context.contentResolver.query(
                 Telephony.Sms.Inbox.CONTENT_URI,
                 projection,
-                "${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.ADDRESS} LIKE ?",
-                arrayOf(since.toString(), "%95566%"),
+                "${Telephony.Sms.DATE} >= ? AND (${Telephony.Sms.ADDRESS} LIKE ? OR ${Telephony.Sms.BODY} LIKE ?)",
+                arrayOf(since.toString(), "%95566%", "%中国银行%"),
                 "${Telephony.Sms.DATE} DESC",
             )?.use { cursor ->
                 val addressIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
