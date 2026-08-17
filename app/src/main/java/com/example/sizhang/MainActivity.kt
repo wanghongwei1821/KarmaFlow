@@ -13,6 +13,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,6 +59,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -250,7 +256,9 @@ private fun LedgerScreen(
                     )
                 }
                 item { TodayCard(state) }
+                item { TomorrowForecastCard(state) }
                 item { AccountOverviewCard(state, onEdit = { showBalanceEditor = true }) }
+                item { SpendingTrendCard(state) }
             }
         }
     }
@@ -456,7 +464,11 @@ private fun TodayCard(state: LedgerUiState) {
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 23.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
+<<<<<<< Updated upstream
                     if (balanceDaily != null) "每天安心可花" else "今日可支配",
+=======
+                    if (balanceDaily != null) "今日可用 · 明日更新" else "今日可支配",
+>>>>>>> Stashed changes
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .78f),
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.weight(1f),
@@ -486,6 +498,206 @@ private fun TodayCard(state: LedgerUiState) {
                     modifier = Modifier.weight(1f),
                 )
                 Metric("今日已消费", formatMoney(state.summary.todaySpentCents), light = true, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TomorrowForecastCard(state: LedgerUiState) {
+    val forecast = state.summary.tomorrowAvailableCents
+    val forecastDate = state.summary.tomorrowDate
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .72f),
+        ),
+        shape = RoundedCornerShape(24.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("明", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text(
+                    if (forecastDate != null) {
+                        "${forecastDate.monthValue}月${forecastDate.dayOfMonth}日预估可花"
+                    } else {
+                        "明日预知"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    forecast?.let(::formatMoney) ?: "本周期暂无明日额度",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    if (forecast != null) {
+                        "已结合今日消费 ${formatMoney(state.summary.todaySpentCents)}，今日继续消费会更新此预估"
+                    } else {
+                        "进入下一周期后会重新开始预测"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpendingTrendCard(state: LedgerUiState) {
+    val points = state.summary.dailySpending
+    val actualColor = MaterialTheme.colorScheme.primary
+    val expectedColor = MaterialTheme.colorScheme.secondary
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    val average = if (points.isEmpty()) 0L else points.sumOf { it.actualCents } / points.size
+    val peak = points.maxOfOrNull { it.actualCents } ?: 0L
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = RoundedCornerShape(26.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column {
+                Text("每日预计与实际花费", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (points.isEmpty()) "周期开始后生成" else "最近 ${points.size} 天 · 人民币净消费",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (points.isNotEmpty()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    Box(Modifier.size(9.dp).background(actualColor, CircleShape))
+                    Text("实际", style = MaterialTheme.typography.bodySmall)
+                    Box(Modifier.size(9.dp).background(expectedColor, CircleShape))
+                    Text("预计", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "实际日均 ${formatMoney(average)}",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                    )
+                }
+            }
+            if (points.isEmpty()) {
+                Text(
+                    "当前预算周期尚未开始，之后每天的消费会在这里形成曲线。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(168.dp),
+                ) {
+                    val left = 8f
+                    val right = size.width - 8f
+                    val top = 10f
+                    val bottom = size.height - 12f
+                    val chartWidth = (right - left).coerceAtLeast(1f)
+                    val chartHeight = (bottom - top).coerceAtLeast(1f)
+                    repeat(4) { index ->
+                        val y = top + chartHeight * index / 3f
+                        drawLine(
+                            color = gridColor.copy(alpha = .72f),
+                            start = Offset(left, y),
+                            end = Offset(right, y),
+                            strokeWidth = 1.2f,
+                        )
+                    }
+                    val maxAmount = points.maxOf { point ->
+                        maxOf(point.actualCents, point.expectedCents)
+                    }.coerceAtLeast(1L).toFloat()
+                    val actualPath = Path()
+                    val expectedPath = Path()
+                    points.forEachIndexed { index, point ->
+                        val x = if (points.size == 1) {
+                            left + chartWidth / 2f
+                        } else {
+                            left + chartWidth * index / (points.size - 1).toFloat()
+                        }
+                        val actualY = bottom - chartHeight * (point.actualCents / maxAmount)
+                        val expectedY = bottom - chartHeight * (point.expectedCents / maxAmount)
+                        if (index == 0) {
+                            actualPath.moveTo(x, actualY)
+                            expectedPath.moveTo(x, expectedY)
+                        } else {
+                            actualPath.lineTo(x, actualY)
+                            expectedPath.lineTo(x, expectedY)
+                        }
+                    }
+                    drawPath(
+                        path = expectedPath,
+                        color = expectedColor,
+                        style = Stroke(
+                            width = 3.2f,
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round,
+                        ),
+                    )
+                    drawPath(
+                        path = actualPath,
+                        color = actualColor,
+                        style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                    )
+                    points.forEachIndexed { index, point ->
+                        val x = if (points.size == 1) {
+                            left + chartWidth / 2f
+                        } else {
+                            left + chartWidth * index / (points.size - 1).toFloat()
+                        }
+                        val actualY = bottom - chartHeight * (point.actualCents / maxAmount)
+                        val expectedY = bottom - chartHeight * (point.expectedCents / maxAmount)
+                        drawCircle(color = expectedColor, radius = 3.6f, center = Offset(x, expectedY))
+                        drawCircle(color = actualColor, radius = 4.5f, center = Offset(x, actualY))
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    val first = points.first().date
+                    val last = points.last().date
+                    Text(
+                        "${first.monthValue}/${first.dayOfMonth}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "最高 ${formatMoney(peak)}",
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                    Text(
+                        "${last.monthValue}/${last.dayOfMonth}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

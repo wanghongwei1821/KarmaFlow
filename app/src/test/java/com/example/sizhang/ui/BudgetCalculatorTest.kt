@@ -116,6 +116,89 @@ class BudgetCalculatorTest {
     }
 
     @Test
+    fun `today balance allowance stays fixed until the next day`() {
+        val balanceCycle = config.copy(
+            cycleStartEpochDay = java.time.LocalDate.of(2026, 8, 1).toEpochDay(),
+            cycleEndEpochDay = java.time.LocalDate.of(2026, 8, 10).toEpochDay(),
+            targetEndingBalanceCents = 0,
+        )
+
+        val afterFirstExpense = BudgetCalculator.calculate(
+            transactions = listOf(
+                transaction(100, TransactionKind.EXPENSE, at(2026, 8, 2, 10, 0), "first"),
+            ),
+            config = balanceCycle,
+            nowMillis = at(2026, 8, 2, 10, 0),
+            zoneId = zone,
+            currentBalanceCents = 900,
+            dayStartBalanceCents = 1_000,
+        )
+        val afterSecondExpense = BudgetCalculator.calculate(
+            transactions = listOf(
+                transaction(100, TransactionKind.EXPENSE, at(2026, 8, 2, 10, 0), "first"),
+                transaction(200, TransactionKind.EXPENSE, at(2026, 8, 2, 15, 0), "second"),
+            ),
+            config = balanceCycle,
+            nowMillis = at(2026, 8, 2, 15, 0),
+            zoneId = zone,
+            currentBalanceCents = 700,
+            dayStartBalanceCents = 1_000,
+        )
+        val nextDay = BudgetCalculator.calculate(
+            transactions = emptyList(),
+            config = balanceCycle,
+            nowMillis = at(2026, 8, 3, 8, 0),
+            zoneId = zone,
+            currentBalanceCents = 700,
+            dayStartBalanceCents = 700,
+        )
+
+        assertEquals(111L, afterFirstExpense.currentBalanceDailyCents)
+        assertEquals(111L, afterSecondExpense.currentBalanceDailyCents)
+        assertEquals(88L, nextDay.currentBalanceDailyCents)
+        assertEquals(113L, afterFirstExpense.tomorrowAvailableCents)
+        assertEquals(88L, afterSecondExpense.tomorrowAvailableCents)
+        assertEquals(java.time.LocalDate.of(2026, 8, 3), afterSecondExpense.tomorrowDate)
+        assertEquals(100L, nextDay.tomorrowAvailableCents)
+    }
+
+    @Test
+    fun `daily spending curve compares expected and actual CNY spending`() {
+        val transactions = listOf(
+            transaction(1_000, TransactionKind.EXPENSE, at(2026, 8, 10, 9, 0), "expense-1"),
+            transaction(200, TransactionKind.REFUND, at(2026, 8, 10, 11, 0), "refund"),
+            transaction(300, TransactionKind.EXPENSE, at(2026, 8, 11, 12, 0), "expense-2"),
+            transaction(5_000, TransactionKind.INCOME, at(2026, 8, 11, 13, 0), "income"),
+            transaction(6_000, TransactionKind.EXPENSE, at(2026, 8, 11, 14, 0), "foreign")
+                .copy(currency = "HKD"),
+        )
+
+        val summary = BudgetCalculator.calculate(transactions, config, now, zone)
+
+        assertEquals(12, summary.dailySpending.size)
+        assertEquals(
+            800L,
+            summary.dailySpending.first { it.date == java.time.LocalDate.of(2026, 8, 10) }.actualCents,
+        )
+        assertEquals(
+            300L,
+            summary.dailySpending.first { it.date == java.time.LocalDate.of(2026, 8, 11) }.actualCents,
+        )
+        assertEquals(
+            0L,
+            summary.dailySpending.first { it.date == java.time.LocalDate.of(2026, 8, 12) }.actualCents,
+        )
+        assertEquals(
+            28_127L,
+            summary.dailySpending.first { it.date == java.time.LocalDate.of(2026, 8, 10) }.expectedCents,
+        )
+        assertEquals(
+            29_429L,
+            summary.dailySpending.first { it.date == java.time.LocalDate.of(2026, 8, 11) }.expectedCents,
+        )
+    }
+
+    @Test
     fun `income is listed but excluded from all spending totals`() {
         val transactions = listOf(
             transaction(10_000, TransactionKind.EXPENSE, at(2026, 8, 5, 12, 0), "expense"),

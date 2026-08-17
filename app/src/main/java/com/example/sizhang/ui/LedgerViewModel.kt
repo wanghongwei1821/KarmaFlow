@@ -27,6 +27,10 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     private val repository = (application as PrivateLedgerApplication).repository
     private val now = MutableStateFlow(System.currentTimeMillis())
 
+    init {
+        viewModelScope.launch { repository.ensureDailyBalanceSnapshot(now.value) }
+    }
+
     val uiState = combine(
         repository.transactions,
         repository.budgetConfig,
@@ -42,6 +46,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
                 config = budget,
                 nowMillis = currentTime,
                 currentBalanceCents = accountBalance.amountCents,
+                dayStartBalanceCents = accountBalance.dayStartAmountCents,
             ),
             smsMonitor = smsMonitor,
             accountBalance = accountBalance,
@@ -53,7 +58,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     fun refreshClock() {
-        now.value = System.currentTimeMillis()
+        val currentTime = System.currentTimeMillis()
+        now.value = currentTime
+        viewModelScope.launch { repository.ensureDailyBalanceSnapshot(currentTime) }
     }
 
     fun updateBudget(config: BudgetConfig) {

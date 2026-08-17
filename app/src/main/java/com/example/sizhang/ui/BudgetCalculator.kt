@@ -7,6 +7,12 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.LocalDate
 
+data class DailySpendingPoint(
+    val date: LocalDate,
+    val actualCents: Long,
+    val expectedCents: Long,
+)
+
 data class BudgetSummary(
     val todaySpentCents: Long = 0,
     val monthSpentCents: Long = 0,
@@ -23,6 +29,9 @@ data class BudgetSummary(
     val totalCycleDays: Int = 0,
     val remainingCycleDays: Int = 0,
     val targetEndingBalanceCents: Long = 0,
+    val tomorrowAvailableCents: Long? = null,
+    val tomorrowDate: LocalDate? = null,
+    val dailySpending: List<DailySpendingPoint> = emptyList(),
 )
 
 object BudgetCalculator {
@@ -32,6 +41,7 @@ object BudgetCalculator {
         nowMillis: Long = System.currentTimeMillis(),
         zoneId: ZoneId = ZoneId.systemDefault(),
         currentBalanceCents: Long? = null,
+        dayStartBalanceCents: Long? = null,
     ): BudgetSummary {
         val today = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
         val cycleStart = LocalDate.ofEpochDay(config.cycleStartEpochDay)
@@ -79,7 +89,7 @@ object BudgetCalculator {
             )
         }
         val currentBalanceDaily = if (todayInCycle && remainingDaysIncludingToday > 0) {
-            currentBalanceCents?.let { balance ->
+            (dayStartBalanceCents ?: currentBalanceCents)?.let { balance ->
                 divideMoneyRounded(
                     (balance - config.targetEndingBalanceCents).coerceAtLeast(0),
                     remainingDaysIncludingToday,
@@ -88,6 +98,60 @@ object BudgetCalculator {
         } else {
             null
         }
+        val daysFromTomorrow = (remainingDaysIncludingToday - 1).coerceAtLeast(0)
+        val forecastDate = today.plusDays(1).takeIf { date ->
+            todayInCycle && !date.isAfter(cycleEnd)
+        }
+        val tomorrowAvailable = if (forecastDate != null && daysFromTomorrow > 0) {
+            val distributable = currentBalanceCents?.let { balance ->
+                (balance - config.targetEndingBalanceCents).coerceAtLeast(0)
+            } ?: cycleRemaining.coerceAtLeast(0)
+            divideMoneyRounded(distributable, daysFromTomorrow)
+        } else {
+            null
+        }
+        val chartEnd = when {
+            today.isBefore(cycleStart) -> null
+            today.isAfter(cycleEnd) -> cycleEnd
+            else -> today
+        }
+        val dailySpending = chartEnd?.let { endDate ->
+            val chartStart = maxOf(cycleStart, endDate.minusDays(30))
+            val netSpendingByDate = cycleTransactions.groupBy { transaction ->
+                Instant.ofEpochMilli(transaction.occurredAt)
+                    .atZone(zoneId)
+                    .toLocalDate()
+            }.mapValues { (_, dailyTransactions) ->
+                dailyTransactions.sumOf(TransactionEntity::signedExpenseCents)
+            }
+            val planBase = config.cycleStartingBalanceCents
+                ?: (config.monthlyBudgetCents - reserved).coerceAtLeast(0)
+            var spentBeforeDate = netSpendingByDate
+                .filterKeys { date -> date.isBefore(chartStart) }
+                .values
+                .sum()
+            generateSequence(chartStart) { date -> date.plusDays(1) }
+                .takeWhile { date -> !date.isAfter(endDate) }
+                .map { date ->
+                    val remainingDays = java.time.temporal.ChronoUnit.DAYS
+                        .between(date, nextCycleStart)
+                        .toInt()
+                        .coerceAtLeast(1)
+                    val expected = divideMoneyRounded(
+                        (planBase - config.targetEndingBalanceCents - spentBeforeDate)
+                            .coerceAtLeast(0),
+                        remainingDays,
+                    )
+                    val netActual = netSpendingByDate[date] ?: 0
+                    spentBeforeDate += netActual
+                    DailySpendingPoint(
+                        date = date,
+                        actualCents = netActual.coerceAtLeast(0),
+                        expectedCents = expected,
+                    )
+                }
+                .toList()
+        }.orEmpty()
         val used = if (config.monthlyBudgetCents == 0L) {
             if (reserved + cycleSpent > 0) 1f else 0f
         } else {
@@ -111,6 +175,9 @@ object BudgetCalculator {
             totalCycleDays = totalCycleDays,
             remainingCycleDays = remainingDaysIncludingToday,
             targetEndingBalanceCents = config.targetEndingBalanceCents,
+            tomorrowAvailableCents = tomorrowAvailable,
+            tomorrowDate = forecastDate,
+            dailySpending = dailySpending,
         )
     }
 
