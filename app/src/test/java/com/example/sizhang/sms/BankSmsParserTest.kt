@@ -26,7 +26,7 @@ class BankSmsParserTest {
         assertEquals(2_850L, parsed?.amountCents)
         assertEquals(TransactionKind.EXPENSE, parsed?.kind)
         assertEquals("XX便利店", parsed?.merchant)
-        assertEquals("1234", parsed?.cardLast4)
+        assertNull(parsed?.cardLast4)
         assertEquals(12, parsed?.occurredAt?.let { java.time.Instant.ofEpochMilli(it).atZone(zone).hour })
     }
 
@@ -77,7 +77,7 @@ class BankSmsParserTest {
         )
 
         assertEquals(68_800L, parsed?.amountCents)
-        assertEquals("4321", parsed?.cardLast4)
+        assertNull(parsed?.cardLast4)
         assertEquals("某某百货", parsed?.merchant)
     }
 
@@ -91,7 +91,7 @@ class BankSmsParserTest {
         )
 
         assertEquals(12_345L, parsed?.amountCents)
-        assertEquals("6677", parsed?.cardLast4)
+        assertNull(parsed?.cardLast4)
     }
 
     @Test
@@ -202,7 +202,7 @@ class BankSmsParserTest {
         assertEquals(6_000L, transaction?.amountCents)
         assertEquals("HKD", transaction?.currency)
         assertEquals("FRAMER", transaction?.merchant)
-        assertEquals("5742", transaction?.cardLast4)
+        assertNull(transaction?.cardLast4)
         val date = transaction?.occurredAt?.let {
             java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
         }

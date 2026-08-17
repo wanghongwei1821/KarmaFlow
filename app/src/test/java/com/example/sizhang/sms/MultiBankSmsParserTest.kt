@@ -3,6 +3,7 @@ package com.example.sizhang.sms
 import com.example.sizhang.data.TransactionKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
 import java.time.LocalDate
@@ -68,8 +69,8 @@ class MultiBankSmsParserTest {
             assertNotNull("Failed to parse: ${case.body}", transaction)
             assertEquals(case.bank, result.bank)
             assertEquals(case.bank, transaction?.bank)
-            assertEquals(case.cardLast4, result.cardLast4)
-            assertEquals(case.cardLast4, transaction?.cardLast4)
+            assertNull(result.cardLast4)
+            assertNull(transaction?.cardLast4)
             assertEquals(case.kind, transaction?.kind)
             assertEquals(case.amountCents, transaction?.amountCents)
             assertEquals(case.balanceCents, result.balanceAfterCents)

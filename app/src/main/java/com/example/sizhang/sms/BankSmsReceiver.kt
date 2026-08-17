@@ -33,7 +33,6 @@ class BankSmsReceiver : BroadcastReceiver() {
                         amountCents = balance,
                         observedAt = parseResult.balanceObservedAt,
                         bank = parseResult.bank,
-                        cardLast4 = parseResult.cardLast4,
                     )
                 }
                 parseResult.transaction?.let { parsed ->

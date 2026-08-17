@@ -90,7 +90,6 @@ import com.example.sizhang.data.BudgetConfig
 import com.example.sizhang.data.BudgetItem
 import com.example.sizhang.data.BalanceSource
 import com.example.sizhang.data.BankAccountEntity
-import com.example.sizhang.data.UNKNOWN_CARD_LAST4
 import com.example.sizhang.ui.BudgetCalculator
 import com.example.sizhang.ui.LedgerUiState
 import com.example.sizhang.ui.LedgerViewModel
@@ -243,7 +242,7 @@ private fun LedgerScreen(
                             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Text("银行账户", style = MaterialTheme.typography.titleMedium)
                                 Text(
-                                    "已识别 ${state.bankAccounts.size} 个账户 · 余额按短信时间更新",
+                                    "已识别 ${state.bankAccounts.size} 家银行 · 余额按短信时间更新",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -519,11 +518,6 @@ private fun BankAccountDrawerCard(account: BankAccountEntity) {
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(account.bank, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    if (account.cardLast4 == UNKNOWN_CARD_LAST4) "未识别尾号" else "尾号 ${account.cardLast4}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
                 if (account.updatedAt > 0L) {
                     Text(
                         formatDateTime(account.updatedAt),
@@ -961,15 +955,8 @@ private fun AccountOverviewCard(state: LedgerUiState, onEdit: () -> Unit) {
     val cycleEnd = state.summary.cycleEndDate
     val balanceTitle = when {
         balance.source == BalanceSource.MANUAL -> "手动总余额"
-        state.bankAccounts.size > 1 -> "${state.bankAccounts.size} 张银行卡总余额"
-        state.bankAccounts.size == 1 -> {
-            val account = state.bankAccounts.first()
-            if (account.cardLast4 == UNKNOWN_CARD_LAST4) {
-                "${account.bank} · 未识别尾号"
-            } else {
-                "${account.bank} · 尾号 ${account.cardLast4}"
-            }
-        }
+        state.bankAccounts.size > 1 -> "${state.bankAccounts.size} 家银行总余额"
+        state.bankAccounts.size == 1 -> state.bankAccounts.first().bank
         else -> "账户余额"
     }
     Card(

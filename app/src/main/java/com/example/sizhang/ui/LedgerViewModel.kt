@@ -56,7 +56,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     val uiState = combine(ledgerData, now) { data, currentTime ->
-        val visibleBankAccounts = preferIdentifiedAccounts(data.bankAccounts)
+        val visibleBankAccounts = collapseToOneAccountPerBank(data.bankAccounts)
         val accountBalance = effectiveBalance(data.legacyBalance, visibleBankAccounts)
         LedgerUiState(
             transactions = data.transactions,
@@ -130,14 +130,19 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         )
     }
 
-    private fun preferIdentifiedAccounts(
+    private fun collapseToOneAccountPerBank(
         bankAccounts: List<BankAccountEntity>,
-    ): List<BankAccountEntity> {
-        val banksWithIdentifiedCards = bankAccounts
-            .filter { it.cardLast4 != UNKNOWN_CARD_LAST4 }
-            .mapTo(mutableSetOf()) { it.bank }
-        return bankAccounts.filter { account ->
-            account.cardLast4 != UNKNOWN_CARD_LAST4 || account.bank !in banksWithIdentifiedCards
+    ): List<BankAccountEntity> = bankAccounts
+        .groupBy { it.bank }
+        .map { (bank, accounts) ->
+            val latest = accounts
+                .filter { it.balanceCents != null }
+                .maxByOrNull { it.updatedAt }
+                ?: accounts.maxBy { it.updatedAt }
+            latest.copy(
+                accountKey = bank,
+                cardLast4 = UNKNOWN_CARD_LAST4,
+            )
         }
-    }
+        .sortedBy { it.bank }
 }

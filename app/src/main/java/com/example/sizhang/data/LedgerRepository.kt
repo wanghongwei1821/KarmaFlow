@@ -19,7 +19,7 @@ class LedgerRepository(
     val accountBalance: Flow<AccountBalance> = accountBalanceStore.balance
 
     suspend fun saveSmsTransaction(parsed: ParsedBankTransaction): Boolean {
-        val cardLast4 = parsed.cardLast4 ?: UNKNOWN_CARD_LAST4
+        val cardLast4 = UNKNOWN_CARD_LAST4
         bankAccountDao.insert(
             BankAccountEntity(
                 accountKey = bankAccountKey(parsed.bank, cardLast4),
@@ -34,7 +34,7 @@ class LedgerRepository(
                 kind = parsed.kind,
                 occurredAt = parsed.occurredAt,
                 merchant = parsed.merchant,
-                cardLast4 = parsed.cardLast4,
+                cardLast4 = null,
                 bank = parsed.bank,
                 sender = parsed.sender,
                 fingerprint = parsed.fingerprint,
@@ -50,14 +50,13 @@ class LedgerRepository(
         amountCents: Long,
         observedAt: Long,
         bank: String? = null,
-        cardLast4: String? = null,
     ) {
         if (observedAt <= 0) return
         if (bank == null) {
             accountBalanceStore.updateFromSms(amountCents, observedAt)
             return
         }
-        val resolvedCardLast4 = cardLast4 ?: UNKNOWN_CARD_LAST4
+        val resolvedCardLast4 = UNKNOWN_CARD_LAST4
         val snapshotEpochDay = epochDay(observedAt)
         val accountKey = bankAccountKey(bank, resolvedCardLast4)
         bankAccountDao.insert(

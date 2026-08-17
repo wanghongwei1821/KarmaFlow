@@ -77,10 +77,6 @@ object BankSmsParser {
         """(?:交易后余额|当前余额|账户余额|余额)\s*(?:为|[:：])?\s*(?:人民币|RMB|CNY|￥|¥)?\s*([-+]?[0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:元)?""",
         RegexOption.IGNORE_CASE,
     )
-    private val cardRegex = Regex("""(?:尾号|末四位|卡号末四位|账号末四位)[^0-9]{0,8}([0-9]{4})(?![0-9])""")
-    private val directCreditCardRegex = Regex("""信用卡\s*([0-9]{4})(?![0-9])""")
-    private val parenthesizedCardRegex = Regex("""(?:卡|账户|账号)[（(\[](?:[*xX·•]+)?([0-9]{4})[）)\]]""")
-    private val maskedCardRegex = Regex("""(?:卡|账户|账号)[^，。,；;\n]{0,12}[*xX·•]{2,}([0-9]{4})(?![0-9])""")
     private val merchantRegexes = listOf(
         Regex("""(?:商户名称|商户|交易对方|收款方|对方户名)\s*[:：为]?\s*([^，。,；;\n]{2,40})"""),
         Regex("""(?:在|于)\s*([^，。,；;\n]{2,32}?)\s*(?:消费|支付|发生交易)"""),
@@ -124,7 +120,6 @@ object BankSmsParser {
         if (cleanBody.isBlank()) return BankSmsParseResult(resultCode = "empty")
         val supportedBank = identifyBank(sender, cleanBody)
             ?: return BankSmsParseResult(resultCode = "not_supported_bank")
-        val cardLast4 = extractCardLast4(cleanBody)
         val balanceAfterCents = extractBalanceCents(cleanBody)
         fun result(
             resultCode: String,
@@ -135,7 +130,7 @@ object BankSmsParser {
             balanceAfterCents = balanceAfterCents,
             balanceObservedAt = receivedAt,
             bank = supportedBank.name,
-            cardLast4 = cardLast4,
+            cardLast4 = null,
         )
         if (hardIgnoreWords.any(cleanBody::contains)) {
             return result(resultCode = "security_code")
@@ -170,7 +165,7 @@ object BankSmsParser {
             },
             occurredAt = occurredAt,
             merchant = extractMerchant(cleanBody, isIncome),
-            cardLast4 = cardLast4,
+            cardLast4 = null,
             bank = supportedBank.name,
             sender = normalizedSender,
             fingerprint = fingerprint(normalizedSender, cleanBody, receivedAt),
@@ -190,12 +185,6 @@ object BankSmsParser {
             }
             ?: supportedBanks.firstOrNull { bank -> body.contains(bank.serviceNumber) }
     }
-
-    private fun extractCardLast4(body: String): String? =
-        cardRegex.find(body)?.groupValues?.get(1)
-            ?: directCreditCardRegex.find(body)?.groupValues?.get(1)
-            ?: parenthesizedCardRegex.find(body)?.groupValues?.get(1)
-            ?: maskedCardRegex.find(body)?.groupValues?.get(1)
 
     private fun extractAmount(body: String): Pair<String, Long>? {
         foreignCurrencyAmountRegex.find(body)?.let { match ->

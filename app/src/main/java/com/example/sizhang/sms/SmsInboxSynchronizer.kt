@@ -75,7 +75,6 @@ class SmsInboxSynchronizer(
                             amountCents = balance,
                             observedAt = parseResult.balanceObservedAt,
                             bank = parseResult.bank,
-                            cardLast4 = parseResult.cardLast4,
                         )
                     }
                     val parsed = parseResult.transaction ?: continue
