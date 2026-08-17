@@ -17,6 +17,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +34,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -70,6 +72,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -345,14 +349,14 @@ private fun Header(onOpenMenu: () -> Unit, onEditBudget: () -> Unit) {
 
 @Composable
 private fun AppMark() {
-    Box(
+    Image(
+        painter = painterResource(R.drawable.karmaflow_launcher_logo),
+        contentDescription = "KarmaFlow",
+        contentScale = ContentScale.Crop,
         modifier = Modifier
             .size(40.dp)
-            .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(13.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text("账", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
-    }
+            .clip(RoundedCornerShape(13.dp)),
+    )
 }
 
 @Composable
