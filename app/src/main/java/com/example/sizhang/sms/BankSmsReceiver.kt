@@ -21,7 +21,7 @@ class BankSmsReceiver : BroadcastReceiver() {
         val body = messages.joinToString(separator = "") { it.messageBody.orEmpty() }
         val receivedAt = messages.minOfOrNull { it.timestampMillis } ?: System.currentTimeMillis()
         val parseResult = BankSmsParser.parseDetailed(sender, body, receivedAt)
-        if (parseResult.resultCode == "not_boc") return
+        if (parseResult.resultCode == "not_supported_bank") return
         val pendingResult = goAsync()
         val application = context.applicationContext as PrivateLedgerApplication
 
@@ -32,6 +32,8 @@ class BankSmsReceiver : BroadcastReceiver() {
                     application.repository.updateBalanceFromSms(
                         amountCents = balance,
                         observedAt = parseResult.balanceObservedAt,
+                        bank = parseResult.bank,
+                        cardLast4 = parseResult.cardLast4,
                     )
                 }
                 parseResult.transaction?.let { parsed ->

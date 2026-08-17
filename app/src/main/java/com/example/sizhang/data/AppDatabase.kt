@@ -9,13 +9,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [TransactionEntity::class],
-    version = 2,
+    entities = [TransactionEntity::class, BankAccountEntity::class],
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(RoomConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
+    abstract fun bankAccountDao(): BankAccountDao
 
     companion object {
         @Volatile
@@ -27,13 +28,34 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "private-ledger.db",
-                ).addMigrations(MIGRATION_1_2)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { instance = it }
             }
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'CNY'")
+            }
+        }
+
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS bank_accounts (
+                        accountKey TEXT NOT NULL PRIMARY KEY,
+                        bank TEXT NOT NULL,
+                        cardLast4 TEXT NOT NULL,
+                        balanceCents INTEGER,
+                        updatedAt INTEGER NOT NULL,
+                        dayStartBalanceCents INTEGER,
+                        snapshotEpochDay INTEGER
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_bank_accounts_bank ON bank_accounts (bank)",
+                )
             }
         }
     }

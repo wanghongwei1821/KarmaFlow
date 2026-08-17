@@ -6,13 +6,17 @@ import androidx.lifecycle.viewModelScope
 import com.example.sizhang.PrivateLedgerApplication
 import com.example.sizhang.data.BudgetConfig
 import com.example.sizhang.data.AccountBalance
+import com.example.sizhang.data.BalanceSource
+import com.example.sizhang.data.BankAccountEntity
 import com.example.sizhang.data.TransactionEntity
 import com.example.sizhang.data.SmsMonitorState
+import com.example.sizhang.data.UNKNOWN_CARD_LAST4
 import com.example.sizhang.sms.SmsInboxSynchronizer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 data class LedgerUiState(
@@ -21,30 +25,52 @@ data class LedgerUiState(
     val summary: BudgetSummary = BudgetSummary(),
     val smsMonitor: SmsMonitorState = SmsMonitorState(),
     val accountBalance: AccountBalance = AccountBalance(),
+    val bankAccounts: List<BankAccountEntity> = emptyList(),
+)
+
+private data class LedgerData(
+    val transactions: List<TransactionEntity>,
+    val budget: BudgetConfig,
+    val smsMonitor: SmsMonitorState,
+    val legacyBalance: AccountBalance,
+    val bankAccounts: List<BankAccountEntity>,
 )
 
 class LedgerViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = (application as PrivateLedgerApplication).repository
     private val now = MutableStateFlow(System.currentTimeMillis())
+    private var smsSyncJob: Job? = null
 
-    val uiState = combine(
+    init {
+        viewModelScope.launch { repository.ensureDailyBalanceSnapshot(now.value) }
+    }
+
+    private val ledgerData = combine(
         repository.transactions,
         repository.budgetConfig,
         repository.smsMonitor,
         repository.accountBalance,
-        now,
-    ) { transactions, budget, smsMonitor, accountBalance, currentTime ->
+        repository.bankAccounts,
+    ) { transactions, budget, smsMonitor, legacyBalance, bankAccounts ->
+        LedgerData(transactions, budget, smsMonitor, legacyBalance, bankAccounts)
+    }
+
+    val uiState = combine(ledgerData, now) { data, currentTime ->
+        val visibleBankAccounts = preferIdentifiedAccounts(data.bankAccounts)
+        val accountBalance = effectiveBalance(data.legacyBalance, visibleBankAccounts)
         LedgerUiState(
-            transactions = transactions,
-            budget = budget,
+            transactions = data.transactions,
+            budget = data.budget,
             summary = BudgetCalculator.calculate(
-                transactions = transactions,
-                config = budget,
+                transactions = data.transactions,
+                config = data.budget,
                 nowMillis = currentTime,
                 currentBalanceCents = accountBalance.amountCents,
+                dayStartBalanceCents = accountBalance.dayStartAmountCents,
             ),
-            smsMonitor = smsMonitor,
+            smsMonitor = data.smsMonitor,
             accountBalance = accountBalance,
+            bankAccounts = visibleBankAccounts,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -53,7 +79,9 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     )
 
     fun refreshClock() {
-        now.value = System.currentTimeMillis()
+        val currentTime = System.currentTimeMillis()
+        now.value = currentTime
+        viewModelScope.launch { repository.ensureDailyBalanceSnapshot(currentTime) }
     }
 
     fun updateBudget(config: BudgetConfig) {
@@ -69,8 +97,47 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun syncRecentSms() {
-        viewModelScope.launch {
+        if (smsSyncJob?.isActive == true) return
+        smsSyncJob = viewModelScope.launch {
             SmsInboxSynchronizer(getApplication(), repository).syncRecent()
+        }
+    }
+
+    private fun effectiveBalance(
+        legacyBalance: AccountBalance,
+        bankAccounts: List<BankAccountEntity>,
+    ): AccountBalance {
+        val accountsWithBalance = bankAccounts.filter { it.balanceCents != null }
+        if (accountsWithBalance.isEmpty()) return legacyBalance
+
+        val latestAccountUpdate = accountsWithBalance.maxOf { it.updatedAt }
+        if (
+            legacyBalance.source == BalanceSource.MANUAL &&
+            legacyBalance.amountCents != null &&
+            legacyBalance.updatedAt >= latestAccountUpdate
+        ) {
+            return legacyBalance
+        }
+
+        return AccountBalance(
+            amountCents = accountsWithBalance.sumOf { it.balanceCents ?: 0L },
+            updatedAt = latestAccountUpdate,
+            source = BalanceSource.SMS,
+            dayStartAmountCents = accountsWithBalance.sumOf { account ->
+                account.dayStartBalanceCents ?: account.balanceCents ?: 0L
+            },
+            snapshotEpochDay = accountsWithBalance.mapNotNull { it.snapshotEpochDay }.maxOrNull(),
+        )
+    }
+
+    private fun preferIdentifiedAccounts(
+        bankAccounts: List<BankAccountEntity>,
+    ): List<BankAccountEntity> {
+        val banksWithIdentifiedCards = bankAccounts
+            .filter { it.cardLast4 != UNKNOWN_CARD_LAST4 }
+            .mapTo(mutableSetOf()) { it.bank }
+        return bankAccounts.filter { account ->
+            account.cardLast4 != UNKNOWN_CARD_LAST4 || account.bank !in banksWithIdentifiedCards
         }
     }
 }

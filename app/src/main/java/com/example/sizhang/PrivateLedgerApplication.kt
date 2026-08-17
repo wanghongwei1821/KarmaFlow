@@ -14,6 +14,7 @@ class PrivateLedgerApplication : Application() {
     val repository: LedgerRepository by lazy {
         LedgerRepository(
             transactionDao = AppDatabase.getInstance(this).transactionDao(),
+            bankAccountDao = AppDatabase.getInstance(this).bankAccountDao(),
             budgetStore = BudgetStore(this),
             smsMonitorStore = smsMonitorStore,
             accountBalanceStore = AccountBalanceStore(this),

@@ -33,6 +33,19 @@ class SmsInboxSynchronizer(
         var added = 0
         var balanceFound = false
         val since = System.currentTimeMillis() - TimeUnit.DAYS.toMillis(45)
+        val serviceNumbers = listOf("95588", "95533", "95599", "95566", "95555", "95559", "95580")
+        val bankSignatures = listOf(
+            "工商银行", "建设银行", "农业银行", "中国银行", "招商银行", "交通银行",
+            "邮储银行", "邮政储蓄银行",
+        )
+        val senderClauses = serviceNumbers.joinToString(" OR ") { "${Telephony.Sms.ADDRESS} LIKE ?" }
+        val bodyClauses = bankSignatures.joinToString(" OR ") { "${Telephony.Sms.BODY} LIKE ?" }
+        val selection = "${Telephony.Sms.DATE} >= ? AND ($senderClauses OR $bodyClauses)"
+        val selectionArgs = buildList {
+            add(since.toString())
+            serviceNumbers.forEach { add("%$it%") }
+            bankSignatures.forEach { add("%$it%") }
+        }.toTypedArray()
         val projection = arrayOf(
             Telephony.Sms.ADDRESS,
             Telephony.Sms.BODY,
@@ -43,14 +56,14 @@ class SmsInboxSynchronizer(
             context.contentResolver.query(
                 Telephony.Sms.Inbox.CONTENT_URI,
                 projection,
-                "${Telephony.Sms.DATE} >= ? AND ${Telephony.Sms.ADDRESS} LIKE ?",
-                arrayOf(since.toString(), "%95566%"),
+                selection,
+                selectionArgs,
                 "${Telephony.Sms.DATE} DESC",
             )?.use { cursor ->
                 val addressIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
                 val bodyIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)
                 val dateIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)
-                while (cursor.moveToNext() && scanned < 200) {
+                while (cursor.moveToNext() && scanned < 500) {
                     scanned++
                     val sender = cursor.getString(addressIndex).orEmpty()
                     val body = cursor.getString(bodyIndex).orEmpty()
@@ -58,7 +71,12 @@ class SmsInboxSynchronizer(
                     val parseResult = BankSmsParser.parseDetailed(sender, body, receivedAt)
                     parseResult.balanceAfterCents?.let { balance ->
                         balanceFound = true
-                        repository.updateBalanceFromSms(balance, parseResult.balanceObservedAt)
+                        repository.updateBalanceFromSms(
+                            amountCents = balance,
+                            observedAt = parseResult.balanceObservedAt,
+                            bank = parseResult.bank,
+                            cardLast4 = parseResult.cardLast4,
+                        )
                     }
                     val parsed = parseResult.transaction ?: continue
                     recognized++
@@ -78,7 +96,7 @@ class SmsInboxSynchronizer(
             scanned > 0 -> "sync_unrecognized"
             else -> "sync_none"
         }
-        repository.recordSmsAttempt("95566", status)
+        repository.recordSmsAttempt("银行同步", status)
         SmsSyncResult(scanned, recognized, added, status)
     }
 }
