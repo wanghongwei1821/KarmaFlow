@@ -17,5 +17,7 @@ interface TransactionDao {
 
     @Delete
     suspend fun delete(transaction: TransactionEntity)
-}
 
+    @Query("UPDATE transactions SET isExcluded = :excluded WHERE id = :id")
+    suspend fun setExcluded(id: Long, excluded: Boolean)
+}

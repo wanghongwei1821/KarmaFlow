@@ -26,10 +26,11 @@ data class TransactionEntity(
     val fingerprint: String,
     val currency: String = "CNY",
     val createdAt: Long = System.currentTimeMillis(),
+    val isExcluded: Boolean = false,
 )
 
 val TransactionEntity.signedExpenseCents: Long
-    get() = if (currency != "CNY") {
+    get() = if (isExcluded || currency != "CNY") {
         0
     } else when (kind) {
         TransactionKind.EXPENSE -> amountCents

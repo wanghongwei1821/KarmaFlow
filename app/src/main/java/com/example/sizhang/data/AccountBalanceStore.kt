@@ -77,6 +77,14 @@ class AccountBalanceStore(private val context: Context) {
         }
     }
 
+    suspend fun refreshDailySnapshot(nowMillis: Long = System.currentTimeMillis()) {
+        context.accountBalanceDataStore.edit { preferences ->
+            val currentAmount = preferences[Keys.amount] ?: return@edit
+            preferences[Keys.dayStartAmount] = currentAmount
+            preferences[Keys.snapshotEpochDay] = epochDay(nowMillis)
+        }
+    }
+
     private fun ensureSnapshotForDay(
         preferences: androidx.datastore.preferences.core.MutablePreferences,
         epochDay: Long,

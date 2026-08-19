@@ -92,8 +92,18 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch { repository.updateBalanceManually(amountCents) }
     }
 
+    fun refreshTodayAllowance() {
+        val currentTime = System.currentTimeMillis()
+        now.value = currentTime
+        viewModelScope.launch { repository.refreshDailyBalanceSnapshot(currentTime) }
+    }
+
     fun delete(transaction: TransactionEntity) {
         viewModelScope.launch { repository.delete(transaction) }
+    }
+
+    fun setTransactionExcluded(transaction: TransactionEntity, excluded: Boolean) {
+        viewModelScope.launch { repository.setTransactionExcluded(transaction.id, excluded) }
     }
 
     fun syncRecentSms() {

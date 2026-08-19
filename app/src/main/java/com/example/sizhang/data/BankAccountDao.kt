@@ -49,4 +49,14 @@ interface BankAccountDao {
         """,
     )
     suspend fun ensureDailySnapshots(snapshotEpochDay: Long)
+
+    @Query(
+        """
+        UPDATE bank_accounts
+        SET dayStartBalanceCents = balanceCents,
+            snapshotEpochDay = :snapshotEpochDay
+        WHERE balanceCents IS NOT NULL
+        """,
+    )
+    suspend fun refreshDailySnapshots(snapshotEpochDay: Long)
 }

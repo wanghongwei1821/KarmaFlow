@@ -23,13 +23,13 @@ class BudgetCalculatorTest {
     )
 
     @Test
-    fun `fixed costs are reserved and remaining amount is spread across remaining days`() {
+    fun `without an account balance no periodic budget is invented`() {
         val summary = BudgetCalculator.calculate(emptyList(), config, now, zone)
 
         assertEquals(270_000, summary.reservedCents)
-        assertEquals(618_800, summary.monthRemainingCents)
-        assertEquals(30_940, summary.dailyTargetCents)
-        assertEquals(30_940, summary.todayAvailableCents)
+        assertEquals(0, summary.monthRemainingCents)
+        assertEquals(0, summary.dailyTargetCents)
+        assertEquals(0, summary.todayAvailableCents)
     }
 
     @Test
@@ -78,18 +78,25 @@ class BudgetCalculatorTest {
     }
 
     @Test
-    fun `today spending reduces only today available`() {
+    fun `today spending changes totals but not the locked today allowance`() {
         val transactions = listOf(
             transaction(10_000, TransactionKind.EXPENSE, at(2026, 8, 5, 12, 0), "old"),
             transaction(2_850, TransactionKind.EXPENSE, at(2026, 8, 12, 12, 0), "today"),
             transaction(500, TransactionKind.REFUND, at(2026, 8, 12, 13, 0), "refund"),
         )
-        val summary = BudgetCalculator.calculate(transactions, config, now, zone)
+        val summary = BudgetCalculator.calculate(
+            transactions,
+            config,
+            now,
+            zone,
+            currentBalanceCents = 700_000,
+            dayStartBalanceCents = 700_000,
+        )
 
         assertEquals(12_350, summary.monthSpentCents)
         assertEquals(2_350, summary.todaySpentCents)
-        assertEquals(30_440, summary.dailyTargetCents)
-        assertEquals(28_090, summary.todayAvailableCents)
+        assertEquals(21_500, summary.dailyTargetCents)
+        assertEquals(21_500, summary.todayAvailableCents)
     }
 
     @Test
@@ -98,6 +105,7 @@ class BudgetCalculatorTest {
             cycleStartEpochDay = java.time.LocalDate.of(2026, 8, 1).toEpochDay(),
             cycleEndEpochDay = java.time.LocalDate.of(2026, 8, 10).toEpochDay(),
             cycleStartingBalanceCents = 1_000,
+            reservedItems = emptyList(),
         )
 
         val summary = BudgetCalculator.calculate(
@@ -121,6 +129,7 @@ class BudgetCalculatorTest {
             cycleStartEpochDay = java.time.LocalDate.of(2026, 8, 1).toEpochDay(),
             cycleEndEpochDay = java.time.LocalDate.of(2026, 8, 10).toEpochDay(),
             targetEndingBalanceCents = 0,
+            reservedItems = emptyList(),
         )
 
         val afterFirstExpense = BudgetCalculator.calculate(
@@ -183,7 +192,16 @@ class BudgetCalculatorTest {
                 .copy(currency = "HKD"),
         )
 
-        val summary = BudgetCalculator.calculate(transactions, config, now, zone)
+        val summary = BudgetCalculator.calculate(
+            transactions,
+            config.copy(
+                cycleStartingBalanceCents = 100_000,
+                reservedItems = emptyList(),
+            ),
+            now,
+            zone,
+            currentBalanceCents = 98_900,
+        )
 
         assertEquals(12, summary.dailySpending.size)
         assertEquals(
@@ -199,11 +217,11 @@ class BudgetCalculatorTest {
             summary.dailySpending.first { it.date == java.time.LocalDate.of(2026, 8, 12) }.actualCents,
         )
         assertEquals(
-            28_127L,
+            4_545L,
             summary.dailySpending.first { it.date == java.time.LocalDate.of(2026, 8, 10) }.expectedCents,
         )
         assertEquals(
-            29_429L,
+            4_724L,
             summary.dailySpending.first { it.date == java.time.LocalDate.of(2026, 8, 11) }.expectedCents,
         )
     }
@@ -260,12 +278,13 @@ class BudgetCalculatorTest {
     }
 
     @Test
-    fun `daily amount is zero when current balance is below target ending balance`() {
+    fun `daily and tomorrow amounts can be negative when target exceeds balance`() {
         val balanceCycle = config.copy(
             cycleStartEpochDay = java.time.LocalDate.of(2026, 8, 1).toEpochDay(),
             cycleEndEpochDay = java.time.LocalDate.of(2026, 8, 10).toEpochDay(),
             cycleStartingBalanceCents = 1_000,
             targetEndingBalanceCents = 600,
+            reservedItems = emptyList(),
         )
 
         val summary = BudgetCalculator.calculate(
@@ -276,7 +295,46 @@ class BudgetCalculatorTest {
             currentBalanceCents = 500,
         )
 
-        assertEquals(0L, summary.currentBalanceDailyCents)
+        assertEquals(-11L, summary.currentBalanceDailyCents)
+        assertEquals(-13L, summary.tomorrowAvailableCents)
+    }
+
+    @Test
+    fun `monthly budget no longer changes a balance driven allowance`() {
+        val balanceCycle = config.copy(reservedItems = emptyList())
+        val smallBudget = BudgetCalculator.calculate(
+            emptyList(),
+            balanceCycle.copy(monthlyBudgetCents = 1),
+            now,
+            zone,
+            currentBalanceCents = 100_000,
+            dayStartBalanceCents = 100_000,
+        )
+        val largeBudget = BudgetCalculator.calculate(
+            emptyList(),
+            balanceCycle.copy(monthlyBudgetCents = 100_000_000),
+            now,
+            zone,
+            currentBalanceCents = 100_000,
+            dayStartBalanceCents = 100_000,
+        )
+
+        assertEquals(smallBudget.todayAvailableCents, largeBudget.todayAvailableCents)
+        assertEquals(5_000L, smallBudget.todayAvailableCents)
+    }
+
+    @Test
+    fun `excluded transaction stays in history but is omitted from spending totals`() {
+        val transactions = listOf(
+            transaction(2_000, TransactionKind.EXPENSE, at(2026, 8, 12, 10, 0), "included"),
+            transaction(9_000, TransactionKind.EXPENSE, at(2026, 8, 12, 11, 0), "excluded")
+                .copy(isExcluded = true),
+        )
+
+        val summary = BudgetCalculator.calculate(transactions, config, now, zone)
+
+        assertEquals(2_000L, summary.todaySpentCents)
+        assertEquals(2_000L, summary.monthSpentCents)
     }
 
     private fun transaction(

@@ -86,10 +86,18 @@ class LedgerRepository(
         bankAccountDao.ensureDailySnapshots(epochDay(nowMillis))
     }
 
+    suspend fun refreshDailyBalanceSnapshot(nowMillis: Long = System.currentTimeMillis()) {
+        accountBalanceStore.refreshDailySnapshot(nowMillis)
+        bankAccountDao.refreshDailySnapshots(epochDay(nowMillis))
+    }
+
     suspend fun recordSmsAttempt(sender: String, resultCode: String) =
         smsMonitorStore.record(sender, resultCode)
 
     suspend fun delete(transaction: TransactionEntity) = transactionDao.delete(transaction)
+
+    suspend fun setTransactionExcluded(id: Long, excluded: Boolean) =
+        transactionDao.setExcluded(id, excluded)
 
     private fun epochDay(timestamp: Long): Long = Instant.ofEpochMilli(timestamp)
         .atZone(ZoneId.systemDefault())

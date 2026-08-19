@@ -90,6 +90,8 @@ import com.example.sizhang.data.BudgetConfig
 import com.example.sizhang.data.BudgetItem
 import com.example.sizhang.data.BalanceSource
 import com.example.sizhang.data.BankAccountEntity
+import com.example.sizhang.data.TransactionEntity
+import com.example.sizhang.data.TransactionKind
 import com.example.sizhang.ui.BudgetCalculator
 import com.example.sizhang.ui.LedgerUiState
 import com.example.sizhang.ui.LedgerViewModel
@@ -119,6 +121,8 @@ class MainActivity : ComponentActivity() {
                     onSaveBudget = viewModel::updateBudget,
                     onSaveBalance = viewModel::updateBalance,
                     onSyncRecentSms = viewModel::syncRecentSms,
+                    onRefreshTodayAllowance = viewModel::refreshTodayAllowance,
+                    onSetTransactionExcluded = viewModel::setTransactionExcluded,
                 )
             }
         }
@@ -137,6 +141,8 @@ private fun LedgerScreen(
     onSaveBudget: (BudgetConfig) -> Unit,
     onSaveBalance: (Long) -> Unit,
     onSyncRecentSms: () -> Unit,
+    onRefreshTodayAllowance: () -> Unit,
+    onSetTransactionExcluded: (TransactionEntity, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     var smsPermissionGranted by remember {
@@ -166,6 +172,7 @@ private fun LedgerScreen(
     }
     var showBudgetEditor by rememberSaveable { mutableStateOf(false) }
     var showBalanceEditor by rememberSaveable { mutableStateOf(false) }
+    var pendingTransactionId by rememberSaveable { mutableStateOf<Long?>(null) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
@@ -285,16 +292,27 @@ private fun LedgerScreen(
                         onEditBudget = { showBudgetEditor = true },
                     )
                 }
-                item { TodayCard(state) }
+                item { TodayCard(state, onRefresh = onRefreshTodayAllowance) }
                 item { TomorrowForecastCard(state) }
-                if (
-                    state.summary.tomorrowAvailableCents != null &&
-                    (state.summary.tomorrowDistributableCents ?: 0L) > 0L
-                ) {
+                if (state.summary.tomorrowAvailableCents != null) {
                     item { TodaySpendPreviewCard(state) }
                 }
                 item { AccountOverviewCard(state, onEdit = { showBalanceEditor = true }) }
                 item { SpendingTrendCard(state) }
+                item { HistoryHeader(state.transactions.size) }
+                if (state.transactions.isEmpty()) {
+                    item { EmptyHistoryCard() }
+                } else {
+                    items(
+                        items = state.transactions,
+                        key = { transaction -> "history-${transaction.id}" },
+                    ) { transaction ->
+                        HistoryTransactionCard(
+                            transaction = transaction,
+                            onToggle = { pendingTransactionId = transaction.id },
+                        )
+                    }
+                }
             }
         }
     }
@@ -316,6 +334,34 @@ private fun LedgerScreen(
             onSave = { amount ->
                 onSaveBalance(amount)
                 showBalanceEditor = false
+            },
+        )
+    }
+    val pendingTransaction = state.transactions.firstOrNull { it.id == pendingTransactionId }
+    if (pendingTransaction != null) {
+        val willExclude = !pendingTransaction.isExcluded
+        AlertDialog(
+            onDismissRequest = { pendingTransactionId = null },
+            title = { Text(if (willExclude) "取消计入这笔收支？" else "恢复计入这笔收支？") },
+            text = {
+                Text(
+                    if (willExclude) {
+                        "原始短信记录仍会保留，但这笔收支将不再参与今日消费、周期统计和曲线计算。"
+                    } else {
+                        "这笔收支会重新参与今日消费、周期统计和曲线计算。"
+                    },
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onSetTransactionExcluded(pendingTransaction, willExclude)
+                        pendingTransactionId = null
+                    },
+                ) { Text(if (willExclude) "取消计入" else "恢复计入") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingTransactionId = null }) { Text("返回") }
             },
         )
     }
@@ -556,9 +602,10 @@ private fun bankShortMark(bank: String): String = when (bank) {
 }
 
 @Composable
-private fun TodayCard(state: LedgerUiState) {
+private fun TodayCard(state: LedgerUiState, onRefresh: () -> Unit) {
     val balanceDaily = state.summary.currentBalanceDailyCents
     val available = balanceDaily ?: state.summary.todayAvailableCents
+    var showRefreshConfirmation by rememberSaveable { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
@@ -568,11 +615,20 @@ private fun TodayCard(state: LedgerUiState) {
         Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 23.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (balanceDaily != null) "今日可用 · 明日更新" else "今日可支配",
+                    if (balanceDaily != null) "今日可用 · 已锁定" else "今日可支配",
                     color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .78f),
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.weight(1f),
                 )
+                if (balanceDaily != null) {
+                    TextButton(onClick = { showRefreshConfirmation = true }) {
+                        Text(
+                            "刷新额度",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                    }
+                }
                 Box(
                     modifier = Modifier
                         .background(Color.White.copy(alpha = .13f), CircleShape)
@@ -611,6 +667,26 @@ private fun TodayCard(state: LedgerUiState) {
                 )
             }
         }
+    }
+    if (showRefreshConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showRefreshConfirmation = false },
+            title = { Text("刷新今日可用？") },
+            text = {
+                Text("将按当前账户余额、目标结余、预留金额和剩余天数立即重新计算。刷新后，新额度会继续锁定到明天。")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onRefresh()
+                        showRefreshConfirmation = false
+                    },
+                ) { Text("确认刷新") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRefreshConfirmation = false }) { Text("暂不刷新") }
+            },
+        )
     }
 }
 
@@ -851,6 +927,15 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                     val bottom = size.height - 12f
                     val chartWidth = (right - left).coerceAtLeast(1f)
                     val chartHeight = (bottom - top).coerceAtLeast(1f)
+                    val maximum = points.maxOf { point ->
+                        maxOf(point.actualCents, point.expectedCents, 0L)
+                    }
+                    val minimum = points.minOf { point ->
+                        minOf(point.actualCents, point.expectedCents, 0L)
+                    }
+                    val amountRange = (maximum - minimum).coerceAtLeast(1L).toFloat()
+                    fun amountY(amount: Long): Float = bottom -
+                        chartHeight * ((amount - minimum).toFloat() / amountRange)
                     repeat(4) { index ->
                         val y = top + chartHeight * index / 3f
                         drawLine(
@@ -860,9 +945,14 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                             strokeWidth = 1.2f,
                         )
                     }
-                    val maxAmount = points.maxOf { point ->
-                        maxOf(point.actualCents, point.expectedCents)
-                    }.coerceAtLeast(1L).toFloat()
+                    if (minimum < 0L && maximum > 0L) {
+                        drawLine(
+                            color = gridColor,
+                            start = Offset(left, amountY(0L)),
+                            end = Offset(right, amountY(0L)),
+                            strokeWidth = 2f,
+                        )
+                    }
                     val actualPath = Path()
                     val expectedPath = Path()
                     points.forEachIndexed { index, point ->
@@ -871,8 +961,8 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                         } else {
                             left + chartWidth * index / (points.size - 1).toFloat()
                         }
-                        val actualY = bottom - chartHeight * (point.actualCents / maxAmount)
-                        val expectedY = bottom - chartHeight * (point.expectedCents / maxAmount)
+                        val actualY = amountY(point.actualCents)
+                        val expectedY = amountY(point.expectedCents)
                         if (index == 0) {
                             actualPath.moveTo(x, actualY)
                             expectedPath.moveTo(x, expectedY)
@@ -901,8 +991,8 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                         } else {
                             left + chartWidth * index / (points.size - 1).toFloat()
                         }
-                        val actualY = bottom - chartHeight * (point.actualCents / maxAmount)
-                        val expectedY = bottom - chartHeight * (point.expectedCents / maxAmount)
+                        val actualY = amountY(point.actualCents)
+                        val expectedY = amountY(point.expectedCents)
                         drawCircle(color = expectedColor, radius = 3.6f, center = Offset(x, expectedY))
                         drawCircle(color = actualColor, radius = 4.5f, center = Offset(x, actualY))
                     }
@@ -937,6 +1027,109 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryHeader(count: Int) {
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text("历史收支明细", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(
+            "共 $count 笔 · 可取消或恢复计入，原短信记录不会删除",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun EmptyHistoryCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(22.dp),
+    ) {
+        Text(
+            "识别到银行收支短信后，明细会显示在这里。",
+            modifier = Modifier.padding(20.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun HistoryTransactionCard(
+    transaction: TransactionEntity,
+    onToggle: () -> Unit,
+) {
+    val kindLabel = when (transaction.kind) {
+        TransactionKind.EXPENSE -> "支出"
+        TransactionKind.REFUND -> "退款"
+        TransactionKind.INCOME -> "收入"
+    }
+    val amountColor = when {
+        transaction.isExcluded -> MaterialTheme.colorScheme.onSurfaceVariant
+        transaction.kind == TransactionKind.EXPENSE -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.secondary
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (transaction.isExcluded) {
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (transaction.isExcluded) 0.dp else 1.dp),
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        transaction.merchant?.takeIf { it.isNotBlank() } ?: "${kindLabel}交易",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "${transaction.bank} · ${formatDateTime(transaction.occurredAt)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        formatTransactionAmount(transaction),
+                        color = amountColor,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        if (transaction.isExcluded) "已取消计入" else kindLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (transaction.isExcluded) "不参与预算与消费统计" else "已计入本地账目",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(onClick = onToggle) {
+                    Text(if (transaction.isExcluded) "恢复计入" else "取消计入")
                 }
             }
         }
@@ -1123,7 +1316,6 @@ private fun BudgetEditor(
     onDismiss: () -> Unit,
     onSave: (BudgetConfig) -> Unit,
 ) {
-    var monthly by rememberSaveable(initial) { mutableStateOf(centsToEditText(initial.monthlyBudgetCents)) }
     var cycleStartEpochDay by rememberSaveable(initial) { mutableStateOf(initial.cycleStartEpochDay) }
     var cycleEndEpochDay by rememberSaveable(initial) { mutableStateOf(initial.cycleEndEpochDay) }
     var cycleStartingBalance by rememberSaveable(initial) {
@@ -1139,7 +1331,6 @@ private fun BudgetEditor(
             },
         )
     }
-    val parsedMonthly = parseMoneyToCents(monthly)
     val parsedStartingBalance = parseOptionalMoneyToCents(cycleStartingBalance)
     val parsedTargetEndingBalance = parseMoneyToCents(targetEndingBalance)
     val parsedItems = itemDrafts.map { draft ->
@@ -1149,13 +1340,8 @@ private fun BudgetEditor(
     }
     val itemsValid = parsedItems.all { it != null } &&
         itemDrafts.all { it.name.trim().isNotEmpty() }
-    val reservedTotal = parsedItems.filterNotNull().sumOf { it.amountCents }
-    val targetFitsStartingBalance = parsedStartingBalance.value == null ||
-        (parsedTargetEndingBalance != null && parsedTargetEndingBalance <= parsedStartingBalance.value)
-    val valid = parsedMonthly != null && parsedStartingBalance.isValid &&
-        parsedTargetEndingBalance != null && targetFitsStartingBalance &&
-        cycleEndEpochDay >= cycleStartEpochDay && itemsValid &&
-        reservedTotal + parsedTargetEndingBalance <= parsedMonthly
+    val valid = parsedStartingBalance.isValid && parsedTargetEndingBalance != null &&
+        cycleEndEpochDay >= cycleStartEpochDay && itemsValid
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1167,7 +1353,11 @@ private fun BudgetEditor(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                MoneyField("每周期总预算", monthly, { monthly = it })
+                Text(
+                    "每日额度按当前账户余额计算，不再使用每周期总预算。",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 DateField(
                     label = "周期开始日期",
                     epochDay = cycleStartEpochDay,
@@ -1178,12 +1368,12 @@ private fun BudgetEditor(
                     epochDay = cycleEndEpochDay,
                     onDateSelected = { cycleEndEpochDay = it },
                 )
-                MoneyField("周期起始账户余额（可留空）", cycleStartingBalance, {
+                MoneyField("周期起始账户余额（仅用于原计划对比，可留空）", cycleStartingBalance, {
                     cycleStartingBalance = it
                 })
                 MoneyField("目标结余", targetEndingBalance, { targetEndingBalance = it })
                 Text(
-                    "目标结余是周期结束时希望账户中保留的钱，不会分配到每日额度。",
+                    "目标结余是周期结束时希望保留的钱，不设预算上限；高于当前余额时，每日额度会显示为负数。",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -1233,8 +1423,8 @@ private fun BudgetEditor(
                     },
                 ) { Text("新增预留项目") }
                 Text(
-                    if (valid) "可花余额扣除目标结余后，会按当前周期剩余天数动态分配。"
-                    else "请检查日期和金额；目标结余不能超过起始余额或可用预算。",
+                    if (valid) "当前余额扣除预留项目和目标结余后，会按周期剩余天数分配。"
+                    else "请检查日期、项目名称和金额。",
                     color = if (valid) MaterialTheme.colorScheme.onSurfaceVariant
                         else MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
@@ -1246,8 +1436,7 @@ private fun BudgetEditor(
                 enabled = valid,
                 onClick = {
                     onSave(
-                        BudgetConfig(
-                            monthlyBudgetCents = parsedMonthly ?: return@Button,
+                        initial.copy(
                             cycleStartEpochDay = cycleStartEpochDay,
                             cycleEndEpochDay = cycleEndEpochDay,
                             cycleStartingBalanceCents = parsedStartingBalance.value,
@@ -1338,7 +1527,7 @@ private fun MoneyField(label: String, value: String, onValueChange: (String) -> 
     OutlinedTextField(
         value = value,
         onValueChange = { candidate ->
-            if (candidate.matches(Regex("""[0-9]{0,8}(?:\.[0-9]{0,2})?"""))) {
+            if (candidate.matches(Regex("""[0-9]{0,12}(?:\.[0-9]{0,2})?"""))) {
                 onValueChange(candidate)
             }
         },
@@ -1359,6 +1548,16 @@ private val dateTimeFormatter = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 
 private fun formatMoney(cents: Long): String = synchronized(currencyFormatter) {
     currencyFormatter.format(BigDecimal.valueOf(cents, 2))
+}
+
+private fun formatTransactionAmount(transaction: TransactionEntity): String {
+    val sign = if (transaction.kind == TransactionKind.EXPENSE) "−" else "+"
+    val amount = if (transaction.currency == "CNY") {
+        formatMoney(transaction.amountCents)
+    } else {
+        "${transaction.currency} ${BigDecimal.valueOf(transaction.amountCents, 2).toPlainString()}"
+    }
+    return "$sign$amount"
 }
 
 private fun formatDateTime(timestamp: Long): String = Instant.ofEpochMilli(timestamp)
