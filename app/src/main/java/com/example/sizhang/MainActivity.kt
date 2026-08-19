@@ -65,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
@@ -198,7 +199,7 @@ private fun LedgerScreen(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet(
-                drawerContainerColor = MaterialTheme.colorScheme.background,
+                drawerContainerColor = MaterialTheme.colorScheme.surface,
                 modifier = Modifier.fillMaxWidth(.88f),
             ) {
                 LazyColumn(
@@ -212,11 +213,30 @@ private fun LedgerScreen(
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     item {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            AppMark()
-                            Column(Modifier.padding(start = 12.dp)) {
-                                Text("KarmaFlow 管理", style = MaterialTheme.typography.headlineSmall)
-                                Text("本地处理 · 不上传", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(
+                                            MaterialTheme.colorScheme.primaryContainer,
+                                            MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = .62f),
+                                        ),
+                                    ),
+                                    RoundedCornerShape(26.dp),
+                                )
+                                .padding(18.dp),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                AppMark(size = 46.dp)
+                                Column(Modifier.padding(start = 13.dp)) {
+                                    Text("KarmaFlow", style = MaterialTheme.typography.headlineSmall)
+                                    Text(
+                                        "本地预算与短信记账",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                         }
                     }
@@ -276,15 +296,23 @@ private fun LedgerScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = .24f),
+                                MaterialTheme.colorScheme.background,
+                                MaterialTheme.colorScheme.background,
+                            ),
+                        ),
+                    )
                     .padding(innerPadding),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 18.dp,
-                    end = 18.dp,
-                    top = 12.dp,
-                    bottom = 36.dp,
+                    start = 20.dp,
+                    end = 20.dp,
+                    top = 10.dp,
+                    bottom = 48.dp,
                 ),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 item {
                     Header(
@@ -297,7 +325,9 @@ private fun LedgerScreen(
                 if (state.summary.tomorrowAvailableCents != null) {
                     item { TodaySpendPreviewCard(state) }
                 }
+                item { SectionHeader("账户与周期", "余额、预留与周期进度", "账") }
                 item { AccountOverviewCard(state, onEdit = { showBalanceEditor = true }) }
+                item { SectionHeader("消费趋势", "比较每日预计与实际花费", "势") }
                 item { SpendingTrendCard(state) }
                 item { HistoryHeader(state.transactions.size) }
                 if (state.transactions.isEmpty()) {
@@ -369,37 +399,51 @@ private fun LedgerScreen(
 
 @Composable
 private fun Header(onOpenMenu: () -> Unit, onEditBudget: () -> Unit) {
+    val today = LocalDate.now()
+    val weekday = listOf("一", "二", "三", "四", "五", "六", "日")[today.dayOfWeek.value - 1]
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onOpenMenu) {
-            Text("☰", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        IconButton(
+            onClick = onOpenMenu,
+            modifier = Modifier
+                .size(42.dp)
+                .background(MaterialTheme.colorScheme.surface, CircleShape),
+        ) {
+            Text("☰", fontSize = 19.sp, fontWeight = FontWeight.Bold)
         }
-        AppMark()
-        Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
+        AppMark(size = 38.dp, modifier = Modifier.padding(start = 9.dp))
+        Column(modifier = Modifier.weight(1f).padding(start = 11.dp)) {
             Text(
                 text = stringResource(R.string.app_name),
                 style = MaterialTheme.typography.titleLarge,
             )
             Text(
-                text = "今日财务概览",
+                text = "${today.monthValue}月${today.dayOfMonth}日 · 星期$weekday",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
-        TextButton(onClick = onEditBudget) { Text("预算") }
+        TextButton(
+            onClick = onEditBudget,
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                .padding(horizontal = 3.dp),
+        ) { Text("预算设置", style = MaterialTheme.typography.labelMedium) }
     }
 }
 
 @Composable
-private fun AppMark() {
+private fun AppMark(size: androidx.compose.ui.unit.Dp = 40.dp, modifier: Modifier = Modifier) {
     Image(
         painter = painterResource(R.drawable.karmaflow_launcher_logo),
         contentDescription = "KarmaFlow",
         contentScale = ContentScale.Crop,
-        modifier = Modifier
-            .size(40.dp)
+        modifier = modifier
+            .size(size)
             .clip(RoundedCornerShape(13.dp)),
     )
 }
@@ -608,15 +652,23 @@ private fun TodayCard(state: LedgerUiState, onRefresh: () -> Unit) {
     var showRefreshConfirmation by rememberSaveable { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         shape = RoundedCornerShape(30.dp),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 23.dp)) {
+        Column(
+            modifier = Modifier
+                .background(
+                    Brush.linearGradient(
+                        listOf(Color(0xFF123E36), Color(0xFF1B7663), Color(0xFF249079)),
+                    ),
+                )
+                .padding(horizontal = 24.dp, vertical = 23.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     if (balanceDaily != null) "今日可用 · 已锁定" else "今日可支配",
-                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .78f),
+                    color = Color.White.copy(alpha = .78f),
                     style = MaterialTheme.typography.labelLarge,
                     modifier = Modifier.weight(1f),
                 )
@@ -624,7 +676,7 @@ private fun TodayCard(state: LedgerUiState, onRefresh: () -> Unit) {
                     TextButton(onClick = { showRefreshConfirmation = true }) {
                         Text(
                             "刷新额度",
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            color = Color.White,
                             style = MaterialTheme.typography.labelMedium,
                         )
                     }
@@ -636,7 +688,7 @@ private fun TodayCard(state: LedgerUiState, onRefresh: () -> Unit) {
                 ) {
                     Text(
                         if (balanceDaily != null) "剩 ${state.summary.remainingCycleDays} 天" else "今天",
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        color = Color.White,
                         style = MaterialTheme.typography.labelMedium,
                     )
                 }
@@ -644,13 +696,13 @@ private fun TodayCard(state: LedgerUiState, onRefresh: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             AnimatedMoneyText(
                 cents = available,
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = Color.White,
                 fontSize = 43.sp,
                 fontWeight = FontWeight.Bold,
                 label = "today-available",
             )
             Spacer(Modifier.height(18.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .16f))
+            HorizontalDivider(color = Color.White.copy(alpha = .18f))
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 Metric(
@@ -867,7 +919,7 @@ private fun SpendingTrendCard(state: LedgerUiState) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         shape = RoundedCornerShape(26.dp),
     ) {
         Column(
@@ -875,7 +927,7 @@ private fun SpendingTrendCard(state: LedgerUiState) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Column {
-                Text("每日预计与实际花费", style = MaterialTheme.typography.titleMedium)
+                Text("每日花费曲线", style = MaterialTheme.typography.titleMedium)
                 Text(
                     if (points.isEmpty()) "周期开始后生成" else "最近 ${points.size} 天 · 人民币净消费",
                     style = MaterialTheme.typography.bodySmall,
@@ -919,7 +971,12 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                 Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(168.dp),
+                        .height(180.dp)
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f),
+                            RoundedCornerShape(18.dp),
+                        )
+                        .padding(12.dp),
                 ) {
                     val left = 8f
                     val right = size.width - 8f
@@ -1034,14 +1091,59 @@ private fun SpendingTrendCard(state: LedgerUiState) {
 }
 
 @Composable
+private fun SectionHeader(title: String, subtitle: String, mark: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 1.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(11.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(mark, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        }
+        Column(modifier = Modifier.padding(start = 11.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
 private fun HistoryHeader(count: Int) {
-    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text("历史收支明细", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text(
-            "共 $count 笔 · 可取消或恢复计入，原短信记录不会删除",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 1.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text("历史收支", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                "可取消或恢复计入，原短信记录不会删除",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape)
+                .padding(horizontal = 12.dp, vertical = 7.dp),
+        ) {
+            Text(
+                "$count 笔",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+            )
+        }
     }
 }
 
@@ -1092,7 +1194,24 @@ private fun HistoryTransactionCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(amountColor.copy(alpha = .11f), RoundedCornerShape(13.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        when (transaction.kind) {
+                            TransactionKind.EXPENSE -> "−"
+                            TransactionKind.REFUND -> "↩"
+                            TransactionKind.INCOME -> "+"
+                        },
+                        color = amountColor,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
                     Text(
                         transaction.merchant?.takeIf { it.isNotBlank() } ?: "${kindLabel}交易",
                         style = MaterialTheme.typography.titleMedium,
@@ -1268,13 +1387,13 @@ private fun Metric(label: String, valueCents: Long, modifier: Modifier = Modifie
     Column(modifier) {
         Text(
             label,
-            color = if (light) MaterialTheme.colorScheme.onPrimary.copy(alpha = .72f)
+            color = if (light) Color.White.copy(alpha = .72f)
                 else MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,
         )
         AnimatedMoneyText(
             cents = valueCents,
-            color = if (light) MaterialTheme.colorScheme.onPrimary
+            color = if (light) Color.White
                 else MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.SemiBold,
             label = "metric-$label",
