@@ -9,6 +9,7 @@ import com.example.sizhang.data.AccountBalance
 import com.example.sizhang.data.BalanceSource
 import com.example.sizhang.data.BankAccountEntity
 import com.example.sizhang.data.TransactionEntity
+import com.example.sizhang.data.NotificationDisplaySettings
 import com.example.sizhang.data.SmsMonitorState
 import com.example.sizhang.data.UNKNOWN_CARD_LAST4
 import com.example.sizhang.sms.SmsInboxSynchronizer
@@ -26,6 +27,7 @@ data class LedgerUiState(
     val smsMonitor: SmsMonitorState = SmsMonitorState(),
     val accountBalance: AccountBalance = AccountBalance(),
     val bankAccounts: List<BankAccountEntity> = emptyList(),
+    val notificationSettings: NotificationDisplaySettings = NotificationDisplaySettings(),
 )
 
 private data class LedgerData(
@@ -55,7 +57,11 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
         LedgerData(transactions, budget, smsMonitor, legacyBalance, bankAccounts)
     }
 
-    val uiState = combine(ledgerData, now) { data, currentTime ->
+    val uiState = combine(
+        ledgerData,
+        repository.notificationSettings,
+        now,
+    ) { data, notificationSettings, currentTime ->
         val visibleBankAccounts = collapseToOneAccountPerBank(data.bankAccounts)
         val accountBalance = effectiveBalance(data.legacyBalance, visibleBankAccounts)
         LedgerUiState(
@@ -71,6 +77,7 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
             smsMonitor = data.smsMonitor,
             accountBalance = accountBalance,
             bankAccounts = visibleBankAccounts,
+            notificationSettings = notificationSettings,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -86,6 +93,10 @@ class LedgerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun updateBudget(config: BudgetConfig) {
         viewModelScope.launch { repository.updateBudget(config) }
+    }
+
+    fun updateNotificationSettings(settings: NotificationDisplaySettings) {
+        viewModelScope.launch { repository.updateNotificationSettings(settings) }
     }
 
     fun updateBalance(amountCents: Long) {

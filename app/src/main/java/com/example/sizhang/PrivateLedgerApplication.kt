@@ -5,6 +5,7 @@ import com.example.sizhang.data.AppDatabase
 import com.example.sizhang.data.AccountBalanceStore
 import com.example.sizhang.data.BudgetStore
 import com.example.sizhang.data.LedgerRepository
+import com.example.sizhang.data.NotificationSettingsStore
 import com.example.sizhang.data.SmsMonitorStore
 import com.example.sizhang.notification.BudgetStatusNotifier
 import com.example.sizhang.sms.SmsSyncScheduler
@@ -20,6 +21,7 @@ class PrivateLedgerApplication : Application() {
             budgetStore = BudgetStore(this),
             smsMonitorStore = smsMonitorStore,
             accountBalanceStore = AccountBalanceStore(this),
+            notificationSettingsStore = NotificationSettingsStore(this),
         )
     }
 

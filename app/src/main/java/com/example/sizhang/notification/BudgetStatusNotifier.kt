@@ -17,8 +17,10 @@ import com.example.sizhang.data.BalanceSource
 import com.example.sizhang.data.BankAccountEntity
 import com.example.sizhang.data.BudgetConfig
 import com.example.sizhang.data.LedgerRepository
+import com.example.sizhang.data.NotificationDisplaySettings
 import com.example.sizhang.data.TransactionEntity
 import com.example.sizhang.ui.BudgetCalculator
+import com.example.sizhang.ui.BudgetSummary
 import java.math.BigDecimal
 import java.time.Duration
 import java.time.ZonedDateTime
@@ -31,28 +33,59 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class BudgetNotificationText(
-    val todayAvailable: String,
-    val todaySpent: String,
-    val tomorrowAvailable: String,
+    val lines: List<String>,
 ) {
+    val title: String? get() = lines.firstOrNull()
+    val details: String get() = lines.drop(1).joinToString("\n")
+
     companion object {
         fun create(
-            todayAvailableCents: Long,
-            todaySpentCents: Long,
-            tomorrowAvailableCents: Long?,
-        ): BudgetNotificationText = BudgetNotificationText(
-            todayAvailable = "今日可用 ${formatMoney(todayAvailableCents)}",
-            todaySpent = "今日已消费 ${formatMoney(todaySpentCents)}",
-            tomorrowAvailable = "明日预计可花 ${formatMoney(tomorrowAvailableCents ?: 0)}",
-        )
+            summary: BudgetSummary,
+            settings: NotificationDisplaySettings,
+        ): BudgetNotificationText {
+            if (!settings.enabled) return BudgetNotificationText(emptyList())
+
+            val lines = buildList {
+                if (settings.showTodaySpent) {
+                    add("今日已消费 ${formatMoney(summary.todaySpentCents)}")
+                }
+                if (settings.showTodayAvailable) {
+                    add("今日可用 ${formatMoney(summary.todayAvailableCents)}")
+                }
+                if (settings.showTomorrowAvailable) {
+                    add("明日预计可花 ${formatOptionalMoney(summary.tomorrowAvailableCents)}")
+                }
+                if (settings.showCurrentBalance) {
+                    add("当前余额 ${formatOptionalMoney(summary.currentBalanceCents)}")
+                }
+                if (settings.showCycleSpent) {
+                    add("本期已消费 ${formatMoney(summary.monthSpentCents)}")
+                }
+                if (settings.showDistributableBalance) {
+                    add("可分配余额 ${formatMoney(summary.monthRemainingCents)}")
+                }
+                if (settings.showTargetBalance) {
+                    add("目标结余 ${formatMoney(summary.targetEndingBalanceCents)}")
+                }
+                if (settings.showReservedAmount) {
+                    add("预留金额 ${formatMoney(summary.reservedCents)}")
+                }
+                if (settings.showRemainingDays) {
+                    add("周期剩余 ${summary.remainingCycleDays} 天")
+                }
+            }
+            return BudgetNotificationText(lines)
+        }
 
         private fun formatMoney(cents: Long): String =
             "¥${BigDecimal.valueOf(cents, 2).toPlainString()}"
+
+        private fun formatOptionalMoney(cents: Long?): String =
+            cents?.let(::formatMoney) ?: "--"
     }
 }
 
@@ -61,6 +94,7 @@ private data class NotificationSourceData(
     val budget: BudgetConfig,
     val legacyBalance: AccountBalance,
     val bankAccounts: List<BankAccountEntity>,
+    val notificationSettings: NotificationDisplaySettings,
 )
 
 class BudgetStatusNotifier(
@@ -82,12 +116,14 @@ class BudgetStatusNotifier(
             repository.budgetConfig,
             repository.accountBalance,
             repository.bankAccounts,
-        ) { transactions, budget, legacyBalance, bankAccounts ->
+            repository.notificationSettings,
+        ) { transactions, budget, legacyBalance, bankAccounts, notificationSettings ->
             NotificationSourceData(
                 transactions = transactions,
                 budget = budget,
                 legacyBalance = legacyBalance,
                 bankAccounts = bankAccounts,
+                notificationSettings = notificationSettings,
             )
         }
 
@@ -97,28 +133,23 @@ class BudgetStatusNotifier(
                     legacyBalance = data.legacyBalance,
                     bankAccounts = data.bankAccounts,
                 )
-                BudgetCalculator.calculate(
+                val summary = BudgetCalculator.calculate(
                     transactions = data.transactions,
                     config = data.budget,
                     nowMillis = nowMillis,
                     currentBalanceCents = accountBalance.amountCents,
                     dayStartBalanceCents = accountBalance.dayStartAmountCents,
                 )
-            }.map { summary ->
-                BudgetNotificationText.create(
-                    todayAvailableCents = summary.todayAvailableCents,
-                    todaySpentCents = summary.todaySpentCents,
-                    tomorrowAvailableCents = summary.tomorrowAvailableCents,
-                )
+                BudgetNotificationText.create(summary, data.notificationSettings)
             }.distinctUntilChanged().collect { text ->
-                latestText = text
-                post(text)
+                latestText = text.takeIf { it.lines.isNotEmpty() }
+                if (text.lines.isEmpty()) cancel() else post(text)
             }
         }
     }
 
     fun refresh() {
-        latestText?.let(::post)
+        latestText?.let(::post) ?: cancel()
     }
 
     private fun dailyClock() = flow {
@@ -173,7 +204,7 @@ class BudgetStatusNotifier(
                 "预算状态",
                 NotificationManager.IMPORTANCE_LOW,
             ).apply {
-                description = "显示今日和明日可用额度"
+                description = "显示自定义预算摘要"
                 enableVibration(false)
                 setSound(null, null)
                 setShowBadge(false)
@@ -184,6 +215,7 @@ class BudgetStatusNotifier(
 
     @SuppressLint("MissingPermission")
     private fun post(text: BudgetNotificationText) {
+        val title = text.title ?: return
         if (
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
@@ -192,12 +224,9 @@ class BudgetStatusNotifier(
             return
         }
 
-        val details = "${text.todaySpent}\n${text.tomorrowAvailable}"
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_budget_notification)
-            .setContentTitle(text.todayAvailable)
-            .setContentText(details)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(details))
+            .setContentTitle(title)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -205,9 +234,17 @@ class BudgetStatusNotifier(
             .setSilent(true)
             .setOngoing(true)
             .setShowWhen(false)
-            .build()
+        if (text.details.isNotEmpty()) {
+            builder
+                .setContentText(text.details)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text.details))
+        }
 
-        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, builder.build())
+    }
+
+    private fun cancel() {
+        NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
     }
 
     companion object {

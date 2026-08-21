@@ -54,6 +54,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
@@ -94,6 +95,7 @@ import com.example.sizhang.data.BalanceSource
 import com.example.sizhang.data.BankAccountEntity
 import com.example.sizhang.data.TransactionEntity
 import com.example.sizhang.data.TransactionKind
+import com.example.sizhang.data.NotificationDisplaySettings
 import com.example.sizhang.ui.BudgetCalculator
 import com.example.sizhang.ui.LedgerUiState
 import com.example.sizhang.ui.LedgerViewModel
@@ -132,6 +134,7 @@ class MainActivity : ComponentActivity() {
                     onSyncRecentSms = viewModel::syncRecentSms,
                     onRefreshTodayAllowance = viewModel::refreshTodayAllowance,
                     onSetTransactionExcluded = viewModel::setTransactionExcluded,
+                    onSaveNotificationSettings = viewModel::updateNotificationSettings,
                 )
             }
         }
@@ -164,6 +167,7 @@ private fun LedgerScreen(
     onSyncRecentSms: () -> Unit,
     onRefreshTodayAllowance: () -> Unit,
     onSetTransactionExcluded: (TransactionEntity, Boolean) -> Unit,
+    onSaveNotificationSettings: (NotificationDisplaySettings) -> Unit,
 ) {
     val context = LocalContext.current
     var smsPermissionGranted by remember {
@@ -193,6 +197,7 @@ private fun LedgerScreen(
     }
     var showBudgetEditor by rememberSaveable { mutableStateOf(false) }
     var showBalanceEditor by rememberSaveable { mutableStateOf(false) }
+    var showNotificationSettings by rememberSaveable { mutableStateOf(false) }
     var pendingTransactionId by rememberSaveable { mutableStateOf<Long?>(null) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -303,6 +308,17 @@ private fun LedgerScreen(
                         }
                     }
                     item {
+                        NotificationSettingsDrawerCard(
+                            settings = state.notificationSettings,
+                            onOpen = {
+                                scope.launch {
+                                    drawerState.close()
+                                    showNotificationSettings = true
+                                }
+                            },
+                        )
+                    }
+                    item {
                         OutlinedButton(
                             onClick = { scope.launch { drawerState.close() } },
                             modifier = Modifier.fillMaxWidth(),
@@ -384,6 +400,16 @@ private fun LedgerScreen(
             onSave = { amount ->
                 onSaveBalance(amount)
                 showBalanceEditor = false
+            },
+        )
+    }
+    if (showNotificationSettings) {
+        NotificationSettingsEditor(
+            initial = state.notificationSettings,
+            onDismiss = { showNotificationSettings = false },
+            onSave = { settings ->
+                onSaveNotificationSettings(settings)
+                showNotificationSettings = false
             },
         )
     }
@@ -651,6 +677,228 @@ private fun BankAccountDrawerCard(account: BankAccountEntity) {
                 },
             )
         }
+    }
+}
+
+@Composable
+private fun NotificationSettingsDrawerCard(
+    settings: NotificationDisplaySettings,
+    onOpen: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        shape = RoundedCornerShape(20.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(14.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "知",
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text("通知栏摘要", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        if (settings.enabled) {
+                            "已显示 ${settings.selectedCount} 项 · 点击可自定义"
+                        } else {
+                            "固定通知已关闭"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                TextButton(onClick = onOpen) { Text("设置") }
+            }
+            Text(
+                "选择下拉通知中显示的预算数据，保存后立即更新。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotificationSettingsEditor(
+    initial: NotificationDisplaySettings,
+    onDismiss: () -> Unit,
+    onSave: (NotificationDisplaySettings) -> Unit,
+) {
+    var draft by remember(initial) { mutableStateOf(initial) }
+    val canSave = !draft.enabled || draft.selectedCount > 0
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("通知栏设置") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                NotificationSwitchRow(
+                    title = "显示固定通知",
+                    description = "关闭后会从下拉通知栏移除",
+                    checked = draft.enabled,
+                    onCheckedChange = { draft = draft.copy(enabled = it) },
+                )
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                Text(
+                    "显示内容",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(bottom = 4.dp),
+                )
+                Text(
+                    "默认只显示今日已消费；可以组合更多数据。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
+                NotificationSwitchRow(
+                    title = "今日已消费",
+                    description = "今天已计入的人民币净支出",
+                    checked = draft.showTodaySpent,
+                    enabled = draft.enabled,
+                    onCheckedChange = { draft = draft.copy(showTodaySpent = it) },
+                )
+                NotificationSwitchRow(
+                    title = "今日可用",
+                    description = "当天锁定的可用额度",
+                    checked = draft.showTodayAvailable,
+                    enabled = draft.enabled,
+                    onCheckedChange = { draft = draft.copy(showTodayAvailable = it) },
+                )
+                NotificationSwitchRow(
+                    title = "明日预计可花",
+                    description = "按当前余额计算的明日额度",
+                    checked = draft.showTomorrowAvailable,
+                    enabled = draft.enabled,
+                    onCheckedChange = { draft = draft.copy(showTomorrowAvailable = it) },
+                )
+                NotificationSwitchRow(
+                    title = "当前余额",
+                    description = "银行短信或手动设置的合计余额",
+                    checked = draft.showCurrentBalance,
+                    enabled = draft.enabled,
+                    onCheckedChange = { draft = draft.copy(showCurrentBalance = it) },
+                )
+                NotificationSwitchRow(
+                    title = "本期已消费",
+                    description = "当前预算周期累计净支出",
+                    checked = draft.showCycleSpent,
+                    enabled = draft.enabled,
+                    onCheckedChange = { draft = draft.copy(showCycleSpent = it) },
+                )
+                NotificationSwitchRow(
+                    title = "可分配余额",
+                    description = "扣除目标结余与预留项目后的余额",
+                    checked = draft.showDistributableBalance,
+                    enabled = draft.enabled,
+                    onCheckedChange = { draft = draft.copy(showDistributableBalance = it) },
+                )
+                NotificationSwitchRow(
+                    title = "目标结余",
+                    description = "周期结束时希望留下的钱",
+                    checked = draft.showTargetBalance,
+                    enabled = draft.enabled,
+                    onCheckedChange = { draft = draft.copy(showTargetBalance = it) },
+                )
+                NotificationSwitchRow(
+                    title = "预留金额",
+                    description = "房租、租车等预留项目合计",
+                    checked = draft.showReservedAmount,
+                    enabled = draft.enabled,
+                    onCheckedChange = { draft = draft.copy(showReservedAmount = it) },
+                )
+                NotificationSwitchRow(
+                    title = "周期剩余天数",
+                    description = "包括今天在内的剩余天数",
+                    checked = draft.showRemainingDays,
+                    enabled = draft.enabled,
+                    onCheckedChange = { draft = draft.copy(showRemainingDays = it) },
+                )
+                if (draft.enabled && draft.selectedCount == 0) {
+                    Text(
+                        "请至少选择一项显示内容。",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(top = 6.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(draft) },
+                enabled = canSave,
+            ) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
+
+@Composable
+private fun NotificationSwitchRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = .45f)
+                },
+            )
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                    alpha = if (enabled) 1f else .45f,
+                ),
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled,
+        )
     }
 }
 

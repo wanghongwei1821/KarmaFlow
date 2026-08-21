@@ -11,12 +11,14 @@ class LedgerRepository(
     private val budgetStore: BudgetStore,
     private val smsMonitorStore: SmsMonitorStore,
     private val accountBalanceStore: AccountBalanceStore,
+    private val notificationSettingsStore: NotificationSettingsStore,
 ) {
     val transactions: Flow<List<TransactionEntity>> = transactionDao.observeAll()
     val bankAccounts: Flow<List<BankAccountEntity>> = bankAccountDao.observeAll()
     val budgetConfig: Flow<BudgetConfig> = budgetStore.config
     val smsMonitor: Flow<SmsMonitorState> = smsMonitorStore.state
     val accountBalance: Flow<AccountBalance> = accountBalanceStore.balance
+    val notificationSettings: Flow<NotificationDisplaySettings> = notificationSettingsStore.settings
 
     suspend fun saveSmsTransaction(parsed: ParsedBankTransaction): Boolean {
         val cardLast4 = UNKNOWN_CARD_LAST4
@@ -45,6 +47,9 @@ class LedgerRepository(
     }
 
     suspend fun updateBudget(config: BudgetConfig) = budgetStore.update(config)
+
+    suspend fun updateNotificationSettings(settings: NotificationDisplaySettings) =
+        notificationSettingsStore.update(settings)
 
     suspend fun updateBalanceFromSms(
         amountCents: Long,
