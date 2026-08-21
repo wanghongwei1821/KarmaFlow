@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.sizhang"
         minSdk = 26
         targetSdk = 35
-        versionCode = 31
-        versionName = "1.22.2"
+        versionCode = 32
+        versionName = "1.23.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -54,7 +54,7 @@ android {
     }
     buildFeatures {
         compose = true
-        buildConfig = true
+        buildConfig = false
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -92,4 +92,5 @@ dependencies {
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.generateKotlin", "true")
 }

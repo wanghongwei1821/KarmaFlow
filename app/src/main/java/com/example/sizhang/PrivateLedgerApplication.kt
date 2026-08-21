@@ -6,6 +6,7 @@ import com.example.sizhang.data.AccountBalanceStore
 import com.example.sizhang.data.BudgetStore
 import com.example.sizhang.data.LedgerRepository
 import com.example.sizhang.data.SmsMonitorStore
+import com.example.sizhang.notification.BudgetStatusNotifier
 import com.example.sizhang.sms.SmsSyncScheduler
 import java.security.KeyStore
 
@@ -22,9 +23,17 @@ class PrivateLedgerApplication : Application() {
         )
     }
 
+    val budgetStatusNotifier: BudgetStatusNotifier by lazy {
+        BudgetStatusNotifier(
+            context = this,
+            repository = repository,
+        )
+    }
+
     override fun onCreate() {
         super.onCreate()
         removeLegacyAiCredentials()
+        budgetStatusNotifier.start()
         SmsSyncScheduler.schedule(this)
     }
 
