@@ -32,6 +32,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -111,45 +112,59 @@ class BudgetStatusNotifier(
         if (collectionJob?.isActive == true) return
         createChannel()
 
-        val sourceData = combine(
-            repository.transactions,
-            repository.budgetConfig,
-            repository.accountBalance,
-            repository.bankAccounts,
-            repository.notificationSettings,
-        ) { transactions, budget, legacyBalance, bankAccounts, notificationSettings ->
-            NotificationSourceData(
-                transactions = transactions,
-                budget = budget,
-                legacyBalance = legacyBalance,
-                bankAccounts = bankAccounts,
-                notificationSettings = notificationSettings,
-            )
-        }
-
         collectionJob = scope.launch {
-            combine(sourceData, dailyClock()) { data, nowMillis ->
-                val accountBalance = effectiveBalance(
-                    legacyBalance = data.legacyBalance,
-                    bankAccounts = data.bankAccounts,
-                )
-                val summary = BudgetCalculator.calculate(
-                    transactions = data.transactions,
-                    config = data.budget,
-                    nowMillis = nowMillis,
-                    currentBalanceCents = accountBalance.amountCents,
-                    dayStartBalanceCents = accountBalance.dayStartAmountCents,
-                )
-                BudgetNotificationText.create(summary, data.notificationSettings)
-            }.distinctUntilChanged().collect { text ->
-                latestText = text.takeIf { it.lines.isNotEmpty() }
-                if (text.lines.isEmpty()) cancel() else post(text)
-            }
+            combine(sourceDataFlow(), dailyClock(), ::createText)
+                .distinctUntilChanged()
+                .collect(::publish)
         }
     }
 
     fun refresh() {
-        latestText?.let(::post) ?: cancel()
+        scope.launch { refreshNow() }
+    }
+
+    suspend fun refreshNow(nowMillis: Long = System.currentTimeMillis()) {
+        createChannel()
+        publish(createText(sourceDataFlow().first(), nowMillis))
+    }
+
+    private fun sourceDataFlow() = combine(
+        repository.transactions,
+        repository.budgetConfig,
+        repository.accountBalance,
+        repository.bankAccounts,
+        repository.notificationSettings,
+    ) { transactions, budget, legacyBalance, bankAccounts, notificationSettings ->
+        NotificationSourceData(
+            transactions = transactions,
+            budget = budget,
+            legacyBalance = legacyBalance,
+            bankAccounts = bankAccounts,
+            notificationSettings = notificationSettings,
+        )
+    }
+
+    private fun createText(
+        data: NotificationSourceData,
+        nowMillis: Long,
+    ): BudgetNotificationText {
+        val accountBalance = effectiveBalance(
+            legacyBalance = data.legacyBalance,
+            bankAccounts = data.bankAccounts,
+        )
+        val summary = BudgetCalculator.calculate(
+            transactions = data.transactions,
+            config = data.budget,
+            nowMillis = nowMillis,
+            currentBalanceCents = accountBalance.amountCents,
+            dayStartBalanceCents = accountBalance.dayStartAmountCents,
+        )
+        return BudgetNotificationText.create(summary, data.notificationSettings)
+    }
+
+    private fun publish(text: BudgetNotificationText) {
+        latestText = text.takeIf { it.lines.isNotEmpty() }
+        if (text.lines.isEmpty()) cancel() else post(text)
     }
 
     private fun dailyClock() = flow {

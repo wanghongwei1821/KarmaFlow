@@ -43,6 +43,12 @@ class LedgerRepository(
                 currency = parsed.currency,
             ),
         )
+        if (rowId == -1L) {
+            transactionDao.updateOccurredAtByFingerprint(
+                fingerprint = parsed.fingerprint,
+                occurredAt = parsed.occurredAt,
+            )
+        }
         return rowId != -1L
     }
 

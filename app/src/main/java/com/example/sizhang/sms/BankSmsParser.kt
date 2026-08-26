@@ -275,8 +275,9 @@ object BankSmsParser {
                     match.groupValues[1].toInt(),
                     match.groupValues[2].toInt(),
                     match.groupValues[3].toInt(),
-                    12,
-                    0,
+                    received.hour,
+                    received.minute,
+                    received.second,
                 ).atZone(zoneId).toInstant().toEpochMilli()
             }
             monthDayRegex.find(body)?.let { match ->
@@ -284,8 +285,9 @@ object BankSmsParser {
                     received.year,
                     match.groupValues[1].toInt(),
                     match.groupValues[2].toInt(),
-                    12,
-                    0,
+                    received.hour,
+                    received.minute,
+                    received.second,
                 ).atZone(zoneId)
                 if (candidate.isAfter(received.plusDays(2))) candidate = candidate.minusYears(1)
                 return candidate.toInstant().toEpochMilli()
@@ -295,8 +297,9 @@ object BankSmsParser {
                     received.year,
                     match.groupValues[1].toInt(),
                     match.groupValues[2].toInt(),
-                    12,
-                    0,
+                    received.hour,
+                    received.minute,
+                    received.second,
                 ).atZone(zoneId)
                 if (candidate.isAfter(received.plusDays(2))) candidate = candidate.minusYears(1)
                 return candidate.toInstant().toEpochMilli()

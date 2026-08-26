@@ -15,6 +15,9 @@ interface TransactionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(transaction: TransactionEntity): Long
 
+    @Query("UPDATE transactions SET occurredAt = :occurredAt WHERE fingerprint = :fingerprint AND occurredAt != :occurredAt")
+    suspend fun updateOccurredAtByFingerprint(fingerprint: String, occurredAt: Long): Int
+
     @Delete
     suspend fun delete(transaction: TransactionEntity)
 

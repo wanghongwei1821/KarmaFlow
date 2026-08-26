@@ -39,6 +39,9 @@ class BankSmsReceiver : BroadcastReceiver() {
                     val inserted = application.repository.saveSmsTransaction(parsed)
                     if (!inserted) application.repository.recordSmsAttempt(sender, "duplicate")
                 }
+                if (parseResult.balanceAfterCents != null || parseResult.transaction != null) {
+                    application.budgetStatusNotifier.refreshNow()
+                }
             } finally {
                 pendingResult.finish()
             }

@@ -16,6 +16,7 @@ class SmsSyncWorker(
     override suspend fun doWork(): Result {
         val application = applicationContext as PrivateLedgerApplication
         SmsInboxSynchronizer(application, application.repository).syncRecent()
+        application.budgetStatusNotifier.refreshNow()
         return Result.success()
     }
 }

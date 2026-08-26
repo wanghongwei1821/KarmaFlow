@@ -4,4 +4,6 @@ local.properties
 **/build/
 captures/
 *.iml
-
+/work/
+*.keystore
+*.jks

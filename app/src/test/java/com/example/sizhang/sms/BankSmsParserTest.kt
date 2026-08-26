@@ -123,6 +123,10 @@ class BankSmsParserTest {
         assertEquals(TransactionKind.EXPENSE, parsed?.kind)
         assertEquals("网上支付", parsed?.merchant)
         assertNull(parsed?.cardLast4)
+        val occurred = parsed?.occurredAt?.let {
+            java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDateTime()
+        }
+        assertEquals(java.time.LocalDateTime.of(2026, 8, 13, 13, 0), occurred)
     }
 
     @Test
@@ -207,6 +211,10 @@ class BankSmsParserTest {
             java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalDate()
         }
         assertEquals(java.time.LocalDate.of(2026, 8, 11), date)
+        val time = transaction?.occurredAt?.let {
+            java.time.Instant.ofEpochMilli(it).atZone(zone).toLocalTime()
+        }
+        assertEquals(java.time.LocalTime.of(13, 0), time)
     }
 
     @Test
