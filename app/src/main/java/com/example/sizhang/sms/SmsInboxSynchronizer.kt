@@ -50,6 +50,7 @@ class SmsInboxSynchronizer(
             Telephony.Sms.ADDRESS,
             Telephony.Sms.BODY,
             Telephony.Sms.DATE,
+            Telephony.Sms.DATE_SENT,
         )
 
         try {
@@ -63,12 +64,18 @@ class SmsInboxSynchronizer(
                 val addressIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
                 val bodyIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)
                 val dateIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)
+                val sentDateIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE_SENT)
                 while (cursor.moveToNext() && scanned < 500) {
                     scanned++
                     val sender = cursor.getString(addressIndex).orEmpty()
                     val body = cursor.getString(bodyIndex).orEmpty()
                     val receivedAt = cursor.getLong(dateIndex)
-                    val parseResult = BankSmsParser.parseDetailed(sender, body, receivedAt)
+                    // DATE is the phone's insertion time; DATE_SENT matches the PDU timestamp
+                    // used by BankSmsReceiver. Keep DATE for transactions without an explicit time.
+                    val messageTimestamp = cursor.getLong(sentDateIndex).takeIf { it > 0L } ?: receivedAt
+                    val parseResult = BankSmsParser.parseDetailed(
+                        sender, body, receivedAt, messageTimestamp = messageTimestamp,
+                    )
                     parseResult.balanceAfterCents?.let { balance ->
                         balanceFound = true
                         repository.updateBalanceFromSms(

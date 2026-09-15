@@ -38,6 +38,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -201,6 +205,24 @@ private fun LedgerScreen(
     var pendingTransactionId by rememberSaveable { mutableStateOf<Long?>(null) }
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    var selectedPage by rememberSaveable { mutableStateOf(0) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var historyFilter by rememberSaveable { mutableStateOf("全部") }
+    val filteredTransactions = remember(state.transactions, searchQuery, historyFilter) {
+        state.transactions.filter { transaction ->
+            val matchesText = searchQuery.trim().let { query ->
+                query.isEmpty() || transaction.bank.contains(query, true) ||
+                    transaction.merchant.orEmpty().contains(query, true)
+            }
+            matchesText && when (historyFilter) {
+                "支出" -> transaction.kind == TransactionKind.EXPENSE && !transaction.isExcluded
+                "收入" -> transaction.kind == TransactionKind.INCOME && !transaction.isExcluded
+                "退款" -> transaction.kind == TransactionKind.REFUND && !transaction.isExcluded
+                "已排除" -> transaction.isExcluded
+                else -> true
+            }
+        }
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         smsPermissionGranted = ContextCompat.checkSelfPermission(
@@ -318,17 +340,43 @@ private fun LedgerScreen(
                             },
                         )
                     }
+                    if (Build.MANUFACTURER.equals("samsung", ignoreCase = true)) {
+                        item {
+                            Card(shape = RoundedCornerShape(24.dp)) {
+                                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("三星后台记账", style = MaterialTheme.typography.titleMedium)
+                                    Text("若短信入账延迟，可在系统设置 → 电池 → 后台使用限制中检查 KarmaFlow，避免将它放入深度休眠应用。", style = MaterialTheme.typography.bodyMedium)
+                                    TextButton(onClick = openSystemSettings) { Text("打开应用设置") }
+                                }
+                            }
+                        }
+                    }
                     item {
                         OutlinedButton(
                             onClick = { scope.launch { drawerState.close() } },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text("返回首页") }
+                        ) { Text("返回账本") }
                     }
                 }
             }
         },
     ) {
-        Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            bottomBar = {
+                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    listOf("今天", "明细", "趋势").forEachIndexed { index, title ->
+                        NavigationBarItem(
+                            selected = selectedPage == index,
+                            onClick = { selectedPage = index },
+                            icon = { NavigationMark(index) },
+                            label = { Text(title) },
+                        )
+                    }
+                }
+            },
+        ) { innerPadding ->
+            androidx.compose.runtime.key(selectedPage) {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -352,10 +400,13 @@ private fun LedgerScreen(
             ) {
                 item {
                     Header(
+                        page = selectedPage,
                         onOpenMenu = { scope.launch { drawerState.open() } },
                         onEditBudget = { showBudgetEditor = true },
                     )
                 }
+                if (selectedPage == 0) {
+                item { BudgetHealthCard(state, onEdit = { showBudgetEditor = true }) }
                 item { TodayCard(state, onRefresh = onRefreshTodayAllowance) }
                 item { TomorrowForecastCard(state) }
                 if (state.summary.tomorrowAvailableCents != null) {
@@ -363,14 +414,38 @@ private fun LedgerScreen(
                 }
                 item { SectionHeader("账户与周期", "余额、预留与周期进度", "账") }
                 item { AccountOverviewCard(state, onEdit = { showBalanceEditor = true }) }
+                }
+                if (selectedPage == 2) {
                 item { SectionHeader("消费趋势", "比较每日预计与实际花费", "势") }
                 item { SpendingTrendCard(state) }
-                item { HistoryHeader(state.transactions.size) }
-                if (state.transactions.isEmpty()) {
-                    item { EmptyHistoryCard() }
+                }
+                if (selectedPage == 1) {
+                item { HistoryHeader(filteredTransactions.size) }
+                item {
+                    OutlinedTextField(
+                        value = searchQuery, onValueChange = { searchQuery = it },
+                        label = { Text("搜索银行或商户") }, singleLine = true,
+                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) TextButton(onClick = { searchQuery = "" }) { Text("清除") }
+                        },
+                    )
+                }
+                item {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("全部", "支出", "收入", "退款", "已排除").forEach { filter ->
+                            FilterChip(selected = historyFilter == filter, onClick = { historyFilter = filter }, label = { Text(filter) })
+                        }
+                    }
+                }
+                if (filteredTransactions.isEmpty()) {
+                    item {
+                        if (state.transactions.isEmpty()) EmptyHistoryCard()
+                        else Text("没有符合条件的账目，试试其他关键词或筛选。", modifier = Modifier.padding(20.dp))
+                    }
                 } else {
                     items(
-                        items = state.transactions,
+                        items = filteredTransactions,
                         key = { transaction -> "history-${transaction.id}" },
                     ) { transaction ->
                         HistoryTransactionCard(
@@ -379,6 +454,8 @@ private fun LedgerScreen(
                         )
                     }
                 }
+                }
+            }
             }
         }
     }
@@ -444,9 +521,13 @@ private fun LedgerScreen(
 }
 
 @Composable
-private fun Header(onOpenMenu: () -> Unit, onEditBudget: () -> Unit) {
+private fun Header(page: Int, onOpenMenu: () -> Unit, onEditBudget: () -> Unit) {
     val today = LocalDate.now()
     val weekday = listOf("一", "二", "三", "四", "五", "六", "日")[today.dayOfWeek.value - 1]
+    Column(Modifier.fillMaxWidth().padding(top = 28.dp, bottom = 12.dp)) {
+    Text(listOf("我的日常", "收支明细", "消费趋势")[page], style = MaterialTheme.typography.headlineLarge)
+    Text(listOf("把每一天，安排从容。", "每一笔，都清楚。", "看见消费的节奏。")[page], color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 8.dp, bottom = 28.dp))
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -456,16 +537,15 @@ private fun Header(onOpenMenu: () -> Unit, onEditBudget: () -> Unit) {
         IconButton(
             onClick = onOpenMenu,
             modifier = Modifier
-                .size(42.dp)
+                .size(48.dp)
                 .background(MaterialTheme.colorScheme.surface, CircleShape),
         ) {
             Text("☰", fontSize = 19.sp, fontWeight = FontWeight.Bold)
         }
-        AppMark(size = 38.dp, modifier = Modifier.padding(start = 9.dp))
         Column(modifier = Modifier.weight(1f).padding(start = 11.dp)) {
             Text(
                 text = stringResource(R.string.app_name),
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleMedium,
             )
             Text(
                 text = "${today.monthValue}月${today.dayOfMonth}日 · 星期$weekday",
@@ -480,12 +560,86 @@ private fun Header(onOpenMenu: () -> Unit, onEditBudget: () -> Unit) {
                 .padding(horizontal = 3.dp),
         ) { Text("预算设置", style = MaterialTheme.typography.labelMedium) }
     }
+    }
+}
+
+@Composable
+private fun NavigationMark(index: Int) {
+    val color = MaterialTheme.colorScheme.onSurface
+    Canvas(Modifier.size(24.dp)) {
+        val unit = size.width / 24f
+        val stroke = 2f * unit
+        when (index) {
+            0 -> {
+                drawCircle(color, 8f * unit, style = Stroke(stroke))
+                drawCircle(color, 3f * unit)
+            }
+            1 -> (0..2).forEach { row ->
+                val y = (6 + row * 6) * unit
+                drawCircle(color, unit, Offset(4f * unit, y))
+                drawLine(color, Offset(9f * unit, y), Offset(21f * unit, y), stroke, StrokeCap.Round)
+            }
+            else -> {
+                val path = Path().apply {
+                    moveTo(3f * unit, 19f * unit)
+                    lineTo(9f * unit, 12f * unit)
+                    lineTo(14f * unit, 15f * unit)
+                    lineTo(21f * unit, 5f * unit)
+                }
+                drawPath(path, color, style = Stroke(stroke, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
+        }
+    }
+}
+
+@Composable
+private fun BudgetHealthCard(state: LedgerUiState, onEdit: () -> Unit) {
+    val summary = state.summary
+    val today = LocalDate.now()
+    val start = LocalDate.ofEpochDay(state.budget.cycleStartEpochDay)
+    val end = LocalDate.ofEpochDay(state.budget.cycleEndEpochDay)
+    val title: String
+    val detail: String
+    when {
+        today.isAfter(end) -> {
+            title = "预算周期已结束"
+            detail = "设置新的周期，继续查看每日额度。"
+        }
+        today.isBefore(start) -> {
+            title = "预算周期尚未开始"
+            detail = "将于 ${start.monthValue}月${start.dayOfMonth}日开始。"
+        }
+        summary.currentBalanceCents == null -> {
+            title = "从账户余额开始"
+            detail = "在下方账户卡片填写余额，或在菜单中同步银行短信。"
+        }
+        summary.monthRemainingCents < 0 -> {
+            title = "预留与目标超过余额"
+            detail = "可分配余额 ${formatMoney(summary.monthRemainingCents)}，可检查预留项目和目标结余。"
+        }
+        else -> {
+            title = "距离周期结束还有 ${summary.remainingCycleDays} 天"
+            detail = "今日额度会保持锁定；继续消费的影响可在下方预览。"
+        }
+    }
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(detail, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer)
+            if (today.isAfter(end) || today.isBefore(start) || summary.monthRemainingCents < 0) {
+                TextButton(onClick = onEdit) { Text("调整预算") }
+            }
+        }
+    }
 }
 
 @Composable
 private fun AppMark(size: androidx.compose.ui.unit.Dp = 40.dp, modifier: Modifier = Modifier) {
     Image(
-        painter = painterResource(R.drawable.karmaflow_launcher_logo),
+        painter = painterResource(R.drawable.ic_brand_mark),
         contentDescription = "KarmaFlow",
         contentScale = ContentScale.Crop,
         modifier = modifier
@@ -928,7 +1082,7 @@ private fun TodayCard(state: LedgerUiState, onRefresh: () -> Unit) {
             modifier = Modifier
                 .background(
                     Brush.linearGradient(
-                        listOf(Color(0xFF123E36), Color(0xFF1B7663), Color(0xFF249079)),
+                        listOf(Color(0xFF172B66), Color(0xFF2148A5), Color(0xFF346CE0)),
                     ),
                 )
                 .padding(horizontal = 24.dp, vertical = 23.dp),
@@ -962,7 +1116,9 @@ private fun TodayCard(state: LedgerUiState, onRefresh: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            AnimatedMoneyText(
+            if (state.summary.currentBalanceCents == null) {
+                Text("待设置余额", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+            } else AnimatedMoneyText(
                 cents = available,
                 color = Color.White,
                 fontSize = 43.sp,
@@ -1058,7 +1214,7 @@ private fun TomorrowForecastCard(state: LedgerUiState) {
                         )
                     } else {
                         Text(
-                            "本周期暂无明日额度",
+                            if (state.summary.currentBalanceCents == null) "设置余额后开始预测" else "本周期暂无明日额度",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                         )
@@ -1066,8 +1222,10 @@ private fun TomorrowForecastCard(state: LedgerUiState) {
                     Text(
                         if (forecast != null) {
                             "已结合今天的实时消费，继续消费会更新此预估"
+                        } else if (state.summary.currentBalanceCents == null) {
+                            "在账户卡片填写余额，或同步银行短信"
                         } else {
-                            "进入下一周期后会重新开始预测"
+                            "请核对预算起止日期与剩余天数"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

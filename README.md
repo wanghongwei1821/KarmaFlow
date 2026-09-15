@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/src/main/res/drawable-nodpi/karmaflow_launcher_logo.png" width="120" alt="KarmaFlow Logo" />
+  <img src="design/karmaflow-geometric.png" width="120" alt="KarmaFlow Logo" />
 </p>
 
 <h1 align="center">KarmaFlow</h1>
@@ -28,8 +28,8 @@ KarmaFlow 会在 Android 手机上监听和补扫银行短信，将其中的收�
 
 | 项目 | 信息 |
 | --- | --- |
-| 应用版本 | `1.23.2` |
-| versionCode | `34` |
+| 应用版本 | `1.24.0` |
+| versionCode | `35` |
 | 应用包名 | `com.example.sizhang` |
 | 最低系统 | Android 8.0（API 26） |
 | 目标系统 | Android 15（API 35） |
@@ -139,6 +139,13 @@ KarmaFlow 的额度主要由以下数据共同决定：
 
 从旧版本覆盖安装时，Room 数据库和预算配置会保留。请不要在升级前卸载旧版本，否则 Android 会同时删除应用的本地数据。
 
+### Samsung / One UI 提示
+
+新手机安装后允许短信与通知权限，在账户卡片填写余额，并核对预算周期和预留项目。
+若后台入账延迟，在「设置 → 电池 → 后台使用限制」检查应用是否进入深度休眠；各系统版本菜单名称可能略有不同。
+
+参考：[三星后台应用管理](https://developer.samsung.com/mobile/app-management.html)、[One UI 设计](https://design.samsung.com/global/contents/one-ui-7/)。本项目使用 Compose 实现相近视觉风格，并非三星官方应用。
+
 ### HyperOS / MIUI 提示
 
 部分小米系统会限制后台广播。建议在系统应用设置中确认：
@@ -215,7 +222,7 @@ macOS / Linux：
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-当前版本保留 33 项单元测试，覆盖中国银行真实格式、七家银行代表格式、收入/支出/退款分类、日期和余额提取、多币种处理以及预算计算。
+当前版本保留 38 项单元测试，覆盖中国银行真实格式、七家银行代表格式、收入/支出/退款分类、日期和余额提取、多币种处理以及预算计算。
 
 ## 已知限制
 
@@ -231,6 +238,18 @@ app/build/outputs/apk/debug/app-debug.apk
 ## 更新日志
 
 > 以下记录根据项目开发过程和历史构建产物整理。部分早期版本仅用于个人测试，没有单独发布到 GitHub Releases。
+
+### 1.24.0 — Galaxy 手机界面与查账优化
+
+- 首页拆为「今天 / 明细 / 趋势」，底部导航便于单手切换。
+- 大标题、分组圆角卡片、纯黑深色背景；Android 12 起跟随系统动态配色。
+- 几何 K 品牌图标，提供自适应与单色主题图标、SVG 源文件。
+- 明细支持银行/商户关键词搜索与支出、收入、退款、已排除筛选。
+- 预算状态卡区分未设置余额、周期未开始/已结束、预留超过余额。
+- 固定预算通知支持点击打开应用；三星设备显示后台记账设置说明。
+- 修复实时短信与收件箱补扫采用不同时间戳导致重复入账的问题，保留实际收信时间用于无时分短信。
+- 增加系统短信发送权限约束与新版 Android 数据备份排除规则。
+- 本版聚焦手机，未加入手表模块、云端 AI 或数据迁移。
 
 ### 1.23.2 — 历史时间与后台通知修复
 

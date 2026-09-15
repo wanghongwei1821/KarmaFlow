@@ -1,6 +1,10 @@
 package com.example.sizhang.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import android.os.Build
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -74,8 +78,15 @@ private val LedgerShapes = Shapes(
 
 @Composable
 fun PrivateLedgerTheme(content: @Composable () -> Unit) {
+    val dark = isSystemInDarkTheme()
+    val colors = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (dark) dynamicDarkColorScheme(LocalContext.current) else dynamicLightColorScheme(LocalContext.current)
+    } else if (dark) DarkColors else LightColors
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
+        colorScheme = colors.copy(
+            background = if (dark) Color(0xFF010102) else Color(0xFFF3F4F7),
+            surface = if (dark) Color(0xFF17171B) else Color.White,
+        ),
         typography = LedgerTypography,
         shapes = LedgerShapes,
         content = content,

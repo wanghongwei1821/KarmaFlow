@@ -109,6 +109,7 @@ object BankSmsParser {
         body: String,
         receivedAt: Long,
         zoneId: ZoneId = ZoneId.systemDefault(),
+        messageTimestamp: Long = receivedAt,
     ): BankSmsParseResult {
         val cleanBody = body
             .replace('\u00A0', ' ')
@@ -168,7 +169,7 @@ object BankSmsParser {
             cardLast4 = null,
             bank = supportedBank.name,
             sender = normalizedSender,
-            fingerprint = fingerprint(normalizedSender, cleanBody, receivedAt),
+            fingerprint = fingerprint(normalizedSender, cleanBody, messageTimestamp),
             currency = amount.first,
         )
         return result(

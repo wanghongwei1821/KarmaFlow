@@ -5,6 +5,9 @@ import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Intent
+import com.example.sizhang.MainActivity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -240,6 +243,13 @@ class BudgetStatusNotifier(
         }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentIntent(PendingIntent.getActivity(
+                context, 0,
+                Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            ))
             .setSmallIcon(R.drawable.ic_budget_notification)
             .setContentTitle(title)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
