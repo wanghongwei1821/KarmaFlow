@@ -1,10 +1,6 @@
 package com.example.sizhang.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
-import android.os.Build
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -22,15 +18,15 @@ private val LightColors = lightColorScheme(
     onPrimary = Color.White,
     primaryContainer = Color(0xFFD8F3E9),
     onPrimaryContainer = Color(0xFF073D33),
-    secondary = Color(0xFFB96A3D),
+    secondary = Color(0xFF985026),
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFFFE8D9),
     onSecondaryContainer = Color(0xFF55240A),
     tertiary = Color(0xFF5267A5),
     tertiaryContainer = Color(0xFFDDE4FF),
-    background = Color(0xFFF6F8F5),
+    background = Color(0xFFF2F5F0),
     onBackground = Color(0xFF17201D),
-    surface = Color(0xFFFCFDFC),
+    surface = Color(0xFFFEFFFC),
     onSurface = Color(0xFF17201D),
     surfaceVariant = Color(0xFFECF1EE),
     onSurfaceVariant = Color(0xFF596661),
@@ -46,6 +42,7 @@ private val DarkColors = darkColorScheme(
     onPrimaryContainer = Color(0xFFB3F2DA),
     secondary = Color(0xFFFFB68A),
     secondaryContainer = Color(0xFF743817),
+    onSecondaryContainer = Color(0xFFFFDCC8),
     tertiary = Color(0xFFBAC6FF),
     background = Color(0xFF0F1513),
     onBackground = Color(0xFFDFE7E2),
@@ -78,15 +75,8 @@ private val LedgerShapes = Shapes(
 
 @Composable
 fun PrivateLedgerTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val colors = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        if (dark) dynamicDarkColorScheme(LocalContext.current) else dynamicLightColorScheme(LocalContext.current)
-    } else if (dark) DarkColors else LightColors
     MaterialTheme(
-        colorScheme = colors.copy(
-            background = if (dark) Color(0xFF010102) else Color(0xFFF3F4F7),
-            surface = if (dark) Color(0xFF17171B) else Color.White,
-        ),
+        colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
         typography = LedgerTypography,
         shapes = LedgerShapes,
         content = content,
