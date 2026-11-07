@@ -90,6 +90,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -424,11 +426,11 @@ private fun LedgerScreen(
                 if (selectedPage == 0) {
                     item { TodayCard(state, onRefresh = onRefreshTodayAllowance) }
                     item { BudgetHealthCard(state, onEdit = { showBudgetEditor = true }) }
-                if (state.summary.tomorrowAvailableCents != null) {
-                    item { TodaySpendPreviewCard(state) }
-                }
-                item { SectionHeader("账户与周期", "余额、预留与周期进度", "账") }
-                item { AccountOverviewCard(state, onEdit = { showBalanceEditor = true }) }
+                    item { SectionHeader("账户与周期", "余额、预留与周期进度", "账") }
+                    item { AccountOverviewCard(state, onEdit = { showBalanceEditor = true }) }
+                    if (state.summary.tomorrowAvailableCents != null) {
+                        item { TodaySpendPreviewCard(state) }
+                    }
                 }
                 if (selectedPage == 2) {
                 item { SpendingTrendCard(state) }
@@ -1111,13 +1113,13 @@ private fun TodayCard(state: LedgerUiState, onRefresh: () -> Unit) {
     val available = locked ?: summary.todayAvailableCents
     val forecast = summary.tomorrowAvailableCents
     val forecastDate = summary.tomorrowDate
-    val ink = Color(0xFFECEBE7)
-    val muted = Color(0xFFCFD4BA)
-    val divider = Color(0xFF727F49)
+    val ink = Color(0xFFF0F6FF)
+    val muted = Color(0xFFD1E3FF)
+    val divider = Color(0xFF5476AF)
     var showRefreshConfirmation by rememberSaveable { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF38450F), contentColor = ink),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF17376B), contentColor = ink),
         shape = MaterialTheme.shapes.large,
     ) {
         Column(Modifier.fillMaxWidth().padding(22.dp)) {
@@ -1311,6 +1313,12 @@ private fun TodaySpendPreviewCard(state: LedgerUiState) {
 @Composable
 private fun SpendingTrendCard(state: LedgerUiState) {
     val points = state.summary.dailySpending
+    var showDailyAmounts by rememberSaveable { mutableStateOf(false) }
+    val textMeasurer = rememberTextMeasurer()
+    val axisStyle = MaterialTheme.typography.labelSmall.copy(
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontFeatureSettings = "tnum",
+    )
     val actualColor = MaterialTheme.colorScheme.primary
     val expectedColor = MaterialTheme.colorScheme.secondary
     val gridColor = MaterialTheme.colorScheme.outlineVariant
@@ -1369,23 +1377,40 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                         }
                         .padding(vertical = 8.dp),
                 ) {
-                    val left = 8f
-                    val right = size.width - 8f
-                    val top = 10f
-                    val bottom = size.height - 12f
-                    val chartWidth = (right - left).coerceAtLeast(1f)
-                    val chartHeight = (bottom - top).coerceAtLeast(1f)
                     val maximum = points.maxOf { point ->
                         maxOf(point.actualCents, point.expectedCents, 0L)
                     }
                     val minimum = points.minOf { point ->
                         minOf(point.actualCents, point.expectedCents, 0L)
                     }
-                    val amountRange = (maximum - minimum).coerceAtLeast(1L).toFloat()
-                    fun amountY(amount: Long): Float = bottom -
-                        chartHeight * ((amount - minimum).toFloat() / amountRange)
-                    repeat(4) { index ->
-                        val y = top + chartHeight * index / 3f
+                    val upper = if (maximum == minimum) 300L else maximum
+                    val amountRange = upper.toDouble() - minimum.toDouble()
+                    val tickCount = minOf(3, amountRange.toInt())
+                    val axisLabels = (0..tickCount).map { index ->
+                        val cents = (upper.toDouble() - amountRange * index / tickCount).roundToLong()
+                        textMeasurer.measure(
+                            text = formatMoney(cents),
+                            style = axisStyle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            constraints = androidx.compose.ui.unit.Constraints(
+                                maxWidth = (size.width * .44f).toInt().coerceAtLeast(1),
+                            ),
+                        ) to cents
+                    }
+                    val labelWidth = axisLabels.maxOf { it.first.size.width }
+                    val labelInset = axisLabels.maxOf { it.first.size.height } / 2f
+                    val left = labelWidth + 8.dp.toPx()
+                    val right = size.width - 4.dp.toPx()
+                    val top = labelInset
+                    val bottom = size.height - labelInset
+                    val chartWidth = (right - left).coerceAtLeast(1f)
+                    val chartHeight = (bottom - top).coerceAtLeast(1f)
+                    fun amountY(amount: Long): Float =
+                        bottom - chartHeight * ((amount.toDouble() - minimum) / amountRange).toFloat()
+                    axisLabels.forEach { (label, cents) ->
+                        val y = amountY(cents)
+                        drawText(label, topLeft = Offset((labelWidth - label.size.width).toFloat(), y - label.size.height / 2f))
                         drawLine(
                             color = gridColor.copy(alpha = .72f),
                             start = Offset(left, y),
@@ -1464,6 +1489,24 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                TextButton(onClick = { showDailyAmounts = !showDailyAmounts }) {
+                    Text(if (showDailyAmounts) "收起每日金额" else "查看每日金额")
+                }
+                if (showDailyAmounts) {
+                    points.forEach { point ->
+                        HorizontalDivider(color = gridColor)
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("${point.date.monthValue}月${point.date.dayOfMonth}日", style = MaterialTheme.typography.labelMedium)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                LedgerAmountMetric("实际", point.actualCents, actualColor, Modifier.weight(1f))
+                                LedgerAmountMetric("预计", point.expectedCents, expectedColor, Modifier.weight(1f))
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -1,0 +1,41 @@
+name: Publish KarmaFlow 1.25.0
+on:
+  push:
+    branches: [main]
+    paths:
+      - dist/KarmaFlow-1.25.0.bsdiff
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release-1.25.0
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconstruct and verify the signed APK
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bsdiff
+          curl --fail --location --retry 3 "https://raw.githubusercontent.com/${REPOSITORY}/e52f9fc03151dddce3307d2a27fc6626712734de/dist/KarmaFlow-1.24.0.apk" -o previous.apk
+          echo 'f2ebcf987a68c449c3b3151dee3422e39845758fdfed5ce74dae28e9ae8fdf4d  previous.apk' | sha256sum --check
+          curl --fail --location --retry 3 "https://raw.githubusercontent.com/${REPOSITORY}/${REVISION}/dist/KarmaFlow-1.25.0.bsdiff" -o release.bsdiff
+          bspatch previous.apk KarmaFlow-1.25.0.apk release.bsdiff
+          echo 'a75710da18a406a8185fbc2566ab8ee563ee70e39ae3391886d0e4a7e0066c4e  KarmaFlow-1.25.0.apk' | sha256sum --check
+          curl --fail --location --retry 3 "https://raw.githubusercontent.com/${REPOSITORY}/${REVISION}/RELEASE-NOTES-1.25.0.md" -o notes.md
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+        run: |
+          if gh release view v1.25.0 >/dev/null 2>&1; then
+            gh release view v1.25.0 --json url,assets
+          else
+            gh release create v1.25.0 KarmaFlow-1.25.0.apk --target "$REVISION" --latest --title 'KarmaFlow 1.25.0 · 蓝色预算与消费趋势' --notes-file notes.md
+          fi
