@@ -13,8 +13,8 @@ android {
         applicationId = "com.example.sizhang"
         minSdk = 26
         targetSdk = 35
-        versionCode = 35
-        versionName = "1.24.0"
+        versionCode = 36
+        versionName = "1.25.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

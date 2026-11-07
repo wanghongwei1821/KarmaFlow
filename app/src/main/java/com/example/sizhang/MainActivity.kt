@@ -16,6 +16,7 @@ import androidx.activity.viewModels
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -32,6 +33,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,9 +43,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
@@ -75,6 +79,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -82,7 +87,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -364,14 +373,31 @@ private fun LedgerScreen(
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             bottomBar = {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    listOf("今天", "明细", "趋势").forEachIndexed { index, title ->
-                        NavigationBarItem(
-                            selected = selectedPage == index,
-                            onClick = { selectedPage = index },
-                            icon = { NavigationMark(index) },
-                            label = { Text(title) },
-                        )
+                Column {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                    ) {
+                        listOf("今天", "明细", "趋势").forEachIndexed { index, title ->
+                            NavigationBarItem(
+                                selected = selectedPage == index,
+                                onClick = { selectedPage = index },
+                                icon = {
+                                    NavigationMark(
+                                        index,
+                                        if (selectedPage == index) MaterialTheme.colorScheme.onPrimaryContainer
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
+                                label = { Text(title) },
+                            )
+                        }
                     }
                 }
             },
@@ -380,19 +406,11 @@ private fun LedgerScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = .24f),
-                                MaterialTheme.colorScheme.background,
-                                MaterialTheme.colorScheme.background,
-                            ),
-                        ),
-                    )
+                    .background(MaterialTheme.colorScheme.background)
                     .padding(innerPadding),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 20.dp,
-                    end = 20.dp,
+                    start = 24.dp,
+                    end = 24.dp,
                     top = 10.dp,
                     bottom = 48.dp,
                 ),
@@ -406,17 +424,15 @@ private fun LedgerScreen(
                     )
                 }
                 if (selectedPage == 0) {
-                item { BudgetHealthCard(state, onEdit = { showBudgetEditor = true }) }
-                item { TodayCard(state, onRefresh = onRefreshTodayAllowance) }
-                item { TomorrowForecastCard(state) }
-                if (state.summary.tomorrowAvailableCents != null) {
-                    item { TodaySpendPreviewCard(state) }
-                }
-                item { SectionHeader("账户与周期", "余额、预留与周期进度", "账") }
-                item { AccountOverviewCard(state, onEdit = { showBalanceEditor = true }) }
+                    item { TodayCard(state, onRefresh = onRefreshTodayAllowance) }
+                    item { BudgetHealthCard(state, onEdit = { showBudgetEditor = true }) }
+                    item { SectionHeader("账户与周期", "余额、预留与周期进度", "账") }
+                    item { AccountOverviewCard(state, onEdit = { showBalanceEditor = true }) }
+                    if (state.summary.tomorrowAvailableCents != null) {
+                        item { TodaySpendPreviewCard(state) }
+                    }
                 }
                 if (selectedPage == 2) {
-                item { SectionHeader("消费趋势", "比较每日预计与实际花费", "势") }
                 item { SpendingTrendCard(state) }
                 }
                 if (selectedPage == 1) {
@@ -425,7 +441,7 @@ private fun LedgerScreen(
                     OutlinedTextField(
                         value = searchQuery, onValueChange = { searchQuery = it },
                         label = { Text("搜索银行或商户") }, singleLine = true,
-                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
+                        modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) TextButton(onClick = { searchQuery = "" }) { Text("清除") }
                         },
@@ -444,11 +460,23 @@ private fun LedgerScreen(
                         else Text("没有符合条件的账目，试试其他关键词或筛选。", modifier = Modifier.padding(20.dp))
                     }
                 } else {
-                    items(
+                    itemsIndexed(
                         items = filteredTransactions,
-                        key = { transaction -> "history-${transaction.id}" },
-                    ) { transaction ->
-                        HistoryTransactionCard(
+                        key = { _, transaction -> "history-${transaction.id}" },
+                    ) { index, transaction ->
+                        val date = Instant.ofEpochMilli(transaction.occurredAt).atZone(ZoneId.systemDefault()).toLocalDate()
+                        val previousDate = filteredTransactions.getOrNull(index - 1)?.let {
+                            Instant.ofEpochMilli(it.occurredAt).atZone(ZoneId.systemDefault()).toLocalDate()
+                        }
+                        if (date != previousDate) {
+                            Text(
+                                "${date.year}年${date.monthValue}月${date.dayOfMonth}日",
+                                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        HistoryTransactionRow(
                             transaction = transaction,
                             onToggle = { pendingTransactionId = transaction.id },
                         )
@@ -524,48 +552,55 @@ private fun LedgerScreen(
 private fun Header(page: Int, onOpenMenu: () -> Unit, onEditBudget: () -> Unit) {
     val today = LocalDate.now()
     val weekday = listOf("一", "二", "三", "四", "五", "六", "日")[today.dayOfWeek.value - 1]
-    Column(Modifier.fillMaxWidth().padding(top = 28.dp, bottom = 12.dp)) {
-    Text(listOf("我的日常", "收支明细", "消费趋势")[page], style = MaterialTheme.typography.headlineLarge)
-    Text(listOf("把每一天，安排从容。", "每一笔，都清楚。", "看见消费的节奏。")[page], color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 8.dp, bottom = 28.dp))
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        IconButton(
-            onClick = onOpenMenu,
-            modifier = Modifier
-                .size(48.dp)
-                .background(MaterialTheme.colorScheme.surface, CircleShape),
-        ) {
-            Text("☰", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-        }
-        Column(modifier = Modifier.weight(1f).padding(start = 11.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = onOpenMenu,
+                modifier = Modifier.size(48.dp).background(colors.surface, CircleShape),
+            ) {
+                Canvas(
+                    Modifier.size(19.dp).semantics { contentDescription = "打开菜单" },
+                ) {
+                    val stroke = 1.8.dp.toPx()
+                    for (fraction in listOf(.25f, .5f, .75f)) {
+                        val y = size.height * fraction
+                        drawLine(colors.onSurface, Offset(0f, y), Offset(size.width, y), stroke, StrokeCap.Round)
+                    }
+                }
+            }
             Text(
                 text = stringResource(R.string.app_name),
+                modifier = Modifier.weight(1f).padding(start = 10.dp),
                 style = MaterialTheme.typography.titleMedium,
             )
+            OutlinedButton(onClick = onEditBudget) {
+                Text("预算设置", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
-                text = "${today.monthValue}月${today.dayOfMonth}日 · 星期$weekday",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
+                text = listOf("今日预算", "收支明细", "消费趋势")[page],
+                style = MaterialTheme.typography.headlineLarge,
+            )
+            Text(
+                text = when (page) {
+                    0 -> "${today.monthValue}月${today.dayOfMonth}日 · 星期$weekday"
+                    1 -> "查看和管理本地账目"
+                    else -> "比较每日预计与实际花费"
+                },
+                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
-        TextButton(
-            onClick = onEditBudget,
-            modifier = Modifier
-                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
-                .padding(horizontal = 3.dp),
-        ) { Text("预算设置", style = MaterialTheme.typography.labelMedium) }
-    }
     }
 }
 
 @Composable
-private fun NavigationMark(index: Int) {
-    val color = MaterialTheme.colorScheme.onSurface
+private fun NavigationMark(index: Int, color: Color) {
     Canvas(Modifier.size(24.dp)) {
         val unit = size.width / 24f
         val stroke = 2f * unit
@@ -618,17 +653,21 @@ private fun BudgetHealthCard(state: LedgerUiState, onEdit: () -> Unit) {
             detail = "可分配余额 ${formatMoney(summary.monthRemainingCents)}，可检查预留项目和目标结余。"
         }
         else -> {
-            title = "距离周期结束还有 ${summary.remainingCycleDays} 天"
-            detail = "今日额度会保持锁定；继续消费的影响可在下方预览。"
+            title = "预算周期"
+            detail = "本周期将于 ${end.monthValue}月${end.dayOfMonth}日结束。"
         }
     }
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer)
+                color = MaterialTheme.colorScheme.onSurface)
             Text(detail, style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer)
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (today.isAfter(end) || today.isBefore(start) || summary.monthRemainingCents < 0) {
                 TextButton(onClick = onEdit) { Text("调整预算") }
             }
@@ -1069,77 +1108,84 @@ private fun bankShortMark(bank: String): String = when (bank) {
 
 @Composable
 private fun TodayCard(state: LedgerUiState, onRefresh: () -> Unit) {
-    val balanceDaily = state.summary.currentBalanceDailyCents
-    val available = balanceDaily ?: state.summary.todayAvailableCents
+    val summary = state.summary
+    val locked = summary.currentBalanceDailyCents
+    val available = locked ?: summary.todayAvailableCents
+    val forecast = summary.tomorrowAvailableCents
+    val forecastDate = summary.tomorrowDate
+    val ink = Color(0xFFF0F6FF)
+    val muted = Color(0xFFD1E3FF)
+    val divider = Color(0xFF5476AF)
     var showRefreshConfirmation by rememberSaveable { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(30.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF17376B), contentColor = ink),
+        shape = MaterialTheme.shapes.large,
     ) {
-        Column(
-            modifier = Modifier
-                .background(
-                    Brush.linearGradient(
-                        listOf(Color(0xFF172B66), Color(0xFF2148A5), Color(0xFF346CE0)),
-                    ),
-                )
-                .padding(horizontal = 24.dp, vertical = 23.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.fillMaxWidth().padding(22.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
-                    if (balanceDaily != null) "今日可用 · 已锁定" else "今日可支配",
-                    color = Color.White.copy(alpha = .78f),
-                    style = MaterialTheme.typography.labelLarge,
+                    if (locked != null) "今日可用 · 已锁定" else "今日可用",
                     modifier = Modifier.weight(1f),
+                    color = muted,
+                    style = MaterialTheme.typography.labelLarge,
                 )
-                if (balanceDaily != null) {
-                    TextButton(onClick = { showRefreshConfirmation = true }) {
-                        Text(
-                            "刷新额度",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                }
-                Box(
-                    modifier = Modifier
-                        .background(Color.White.copy(alpha = .13f), CircleShape)
-                        .padding(horizontal = 11.dp, vertical = 6.dp),
-                ) {
-                    Text(
-                        if (balanceDaily != null) "剩 ${state.summary.remainingCycleDays} 天" else "今天",
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelMedium,
-                    )
+                if (locked != null) {
+                    Text("剩 ${summary.remainingCycleDays} 天", color = muted, style = MaterialTheme.typography.labelMedium)
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            if (state.summary.currentBalanceCents == null) {
-                Text("待设置余额", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
-            } else AnimatedMoneyText(
-                cents = available,
-                color = Color.White,
-                fontSize = 43.sp,
-                fontWeight = FontWeight.Bold,
-                label = "today-available",
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (summary.currentBalanceCents == null) "待设置余额" else formatMoney(available),
+                style = MaterialTheme.typography.displaySmall.copy(
+                    fontSize = if (summary.currentBalanceCents == null) 32.sp else 46.sp,
+                    lineHeight = 52.sp,
+                    letterSpacing = (-1.6).sp,
+                    fontFeatureSettings = "tnum",
+                    fontWeight = FontWeight.Medium,
+                ),
             )
-            Spacer(Modifier.height(18.dp))
-            HorizontalDivider(color = Color.White.copy(alpha = .18f))
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                Metric(
-                    if (state.summary.originalBalanceDailyCents != null) "原计划 / 天" else "预算目标",
-                    state.summary.originalBalanceDailyCents ?: state.summary.dailyTargetCents,
-                    light = true,
-                    modifier = Modifier.weight(1f),
+            if (locked != null) {
+                TextButton(
+                    onClick = { showRefreshConfirmation = true },
+                    colors = ButtonDefaults.textButtonColors(contentColor = ink),
+                ) { Text("刷新额度") }
+            } else {
+                Spacer(Modifier.height(14.dp))
+            }
+            HorizontalDivider(color = divider)
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                LedgerAmountMetric("今日已花", summary.todaySpentCents, muted, Modifier.weight(1f))
+                LedgerAmountMetric(
+                    if (summary.originalBalanceDailyCents != null) "原计划 / 天" else "预算目标",
+                    summary.originalBalanceDailyCents ?: summary.dailyTargetCents,
+                    muted,
+                    Modifier.weight(1f),
                 )
-                Metric(
-                    "今日已消费",
-                    state.summary.todaySpentCents,
-                    light = true,
-                    modifier = Modifier.weight(1f),
+            }
+            HorizontalDivider(color = divider)
+            Column(
+                modifier = Modifier.padding(top = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    if (forecastDate != null) "${forecastDate.monthValue}月${forecastDate.dayOfMonth}日预计可花" else "明日预计可花",
+                    color = muted,
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Text(
+                    when {
+                        forecast != null -> formatMoney(forecast)
+                        summary.currentBalanceCents == null -> "设置余额后可查看"
+                        else -> "本周期暂无明日额度"
+                    },
+                    style = MaterialTheme.typography.headlineSmall.copy(fontFeatureSettings = "tnum"),
                 )
             }
         }
@@ -1167,76 +1213,6 @@ private fun TodayCard(state: LedgerUiState, onRefresh: () -> Unit) {
 }
 
 @Composable
-private fun TomorrowForecastCard(state: LedgerUiState) {
-    val forecast = state.summary.tomorrowAvailableCents
-    val forecastDate = state.summary.tomorrowDate
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .72f),
-        ),
-        shape = RoundedCornerShape(24.dp),
-    ) {
-        Column {
-            Row(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("明", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
-                }
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    Text(
-                        if (forecastDate != null) {
-                            "${forecastDate.monthValue}月${forecastDate.dayOfMonth}日预估可花"
-                        } else {
-                            "明日预知"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (forecast != null) {
-                        AnimatedMoneyText(
-                            cents = forecast,
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            label = "tomorrow-forecast",
-                        )
-                    } else {
-                        Text(
-                            if (state.summary.currentBalanceCents == null) "设置余额后开始预测" else "本周期暂无明日额度",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                    Text(
-                        if (forecast != null) {
-                            "已结合今天的实时消费，继续消费会更新此预估"
-                        } else if (state.summary.currentBalanceCents == null) {
-                            "在账户卡片填写余额，或同步银行短信"
-                        } else {
-                            "请核对预算起止日期与剩余天数"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun TodaySpendPreviewCard(state: LedgerUiState) {
     val sliderMaxCents = 200_000L
     var previewExtraText by rememberSaveable(state.summary.tomorrowDate) { mutableStateOf("0") }
@@ -1253,7 +1229,7 @@ private fun TodaySpendPreviewCard(state: LedgerUiState) {
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        shape = RoundedCornerShape(24.dp),
+        shape = MaterialTheme.shapes.large,
     ) {
         Column(
             modifier = Modifier.padding(20.dp),
@@ -1337,6 +1313,12 @@ private fun TodaySpendPreviewCard(state: LedgerUiState) {
 @Composable
 private fun SpendingTrendCard(state: LedgerUiState) {
     val points = state.summary.dailySpending
+    var showDailyAmounts by rememberSaveable { mutableStateOf(false) }
+    val textMeasurer = rememberTextMeasurer()
+    val axisStyle = MaterialTheme.typography.labelSmall.copy(
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontFeatureSettings = "tnum",
+    )
     val actualColor = MaterialTheme.colorScheme.primary
     val expectedColor = MaterialTheme.colorScheme.secondary
     val gridColor = MaterialTheme.colorScheme.outlineVariant
@@ -1346,7 +1328,8 @@ private fun SpendingTrendCard(state: LedgerUiState) {
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(26.dp),
+        shape = MaterialTheme.shapes.large,
+        border = BorderStroke(1.dp, gridColor),
     ) {
         Column(
             modifier = Modifier.padding(20.dp),
@@ -1361,31 +1344,22 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                 )
             }
             if (points.isNotEmpty()) {
+                val muted = MaterialTheme.colorScheme.onSurfaceVariant
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    LedgerAmountMetric("实际日均", average, muted, Modifier.weight(1f))
+                    LedgerAmountMetric("单日最高", peak, muted, Modifier.weight(1f))
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Box(Modifier.size(9.dp).background(actualColor, CircleShape))
-                    Text("实际", style = MaterialTheme.typography.bodySmall)
-                    Box(Modifier.size(9.dp).background(expectedColor, CircleShape))
-                    Text("预计", style = MaterialTheme.typography.bodySmall)
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            "实际日均 ",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        AnimatedMoneyText(
-                            cents = average,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            label = "trend-average",
-                        )
-                    }
+                    Box(Modifier.size(8.dp).background(actualColor, CircleShape))
+                    Text("实际消费", style = MaterialTheme.typography.bodySmall)
+                    Box(Modifier.size(8.dp).background(expectedColor, CircleShape))
+                    Text("预计消费", style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (points.isEmpty()) {
@@ -1397,30 +1371,46 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                 Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(180.dp)
-                        .background(
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f),
-                            RoundedCornerShape(18.dp),
-                        )
-                        .padding(12.dp),
+                        .height(224.dp)
+                        .semantics {
+                            contentDescription = "实际与预计消费曲线，${points.size} 天。实际日均 ${formatMoney(average)}，最高 ${formatMoney(peak)}。"
+                        }
+                        .padding(vertical = 8.dp),
                 ) {
-                    val left = 8f
-                    val right = size.width - 8f
-                    val top = 10f
-                    val bottom = size.height - 12f
-                    val chartWidth = (right - left).coerceAtLeast(1f)
-                    val chartHeight = (bottom - top).coerceAtLeast(1f)
                     val maximum = points.maxOf { point ->
                         maxOf(point.actualCents, point.expectedCents, 0L)
                     }
                     val minimum = points.minOf { point ->
                         minOf(point.actualCents, point.expectedCents, 0L)
                     }
-                    val amountRange = (maximum - minimum).coerceAtLeast(1L).toFloat()
-                    fun amountY(amount: Long): Float = bottom -
-                        chartHeight * ((amount - minimum).toFloat() / amountRange)
-                    repeat(4) { index ->
-                        val y = top + chartHeight * index / 3f
+                    val upper = if (maximum == minimum) 300L else maximum
+                    val amountRange = upper.toDouble() - minimum.toDouble()
+                    val tickCount = minOf(3, amountRange.toInt())
+                    val axisLabels = (0..tickCount).map { index ->
+                        val cents = (upper.toDouble() - amountRange * index / tickCount).roundToLong()
+                        textMeasurer.measure(
+                            text = formatMoney(cents),
+                            style = axisStyle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            constraints = androidx.compose.ui.unit.Constraints(
+                                maxWidth = (size.width * .44f).toInt().coerceAtLeast(1),
+                            ),
+                        ) to cents
+                    }
+                    val labelWidth = axisLabels.maxOf { it.first.size.width }
+                    val labelInset = axisLabels.maxOf { it.first.size.height } / 2f
+                    val left = labelWidth + 8.dp.toPx()
+                    val right = size.width - 4.dp.toPx()
+                    val top = labelInset
+                    val bottom = size.height - labelInset
+                    val chartWidth = (right - left).coerceAtLeast(1f)
+                    val chartHeight = (bottom - top).coerceAtLeast(1f)
+                    fun amountY(amount: Long): Float =
+                        bottom - chartHeight * ((amount.toDouble() - minimum) / amountRange).toFloat()
+                    axisLabels.forEach { (label, cents) ->
+                        val y = amountY(cents)
+                        drawText(label, topLeft = Offset((labelWidth - label.size.width).toFloat(), y - label.size.height / 2f))
                         drawLine(
                             color = gridColor.copy(alpha = .72f),
                             start = Offset(left, y),
@@ -1454,30 +1444,35 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                             expectedPath.lineTo(x, expectedY)
                         }
                     }
+                    if (points.size > 1) {
+                        val actualArea = Path().apply {
+                            addPath(actualPath)
+                            lineTo(right, amountY(0L))
+                            lineTo(left, amountY(0L))
+                            close()
+                        }
+                        drawPath(actualArea, actualColor.copy(alpha = .12f))
+                    }
                     drawPath(
                         path = expectedPath,
                         color = expectedColor,
                         style = Stroke(
-                            width = 3.2f,
+                            width = 1.5.dp.toPx(),
                             cap = StrokeCap.Round,
                             join = StrokeJoin.Round,
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx())),
                         ),
                     )
                     drawPath(
                         path = actualPath,
                         color = actualColor,
-                        style = Stroke(width = 4f, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                        style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
                     )
-                    points.forEachIndexed { index, point ->
-                        val x = if (points.size == 1) {
-                            left + chartWidth / 2f
-                        } else {
-                            left + chartWidth * index / (points.size - 1).toFloat()
-                        }
-                        val actualY = amountY(point.actualCents)
-                        val expectedY = amountY(point.expectedCents)
-                        drawCircle(color = expectedColor, radius = 3.6f, center = Offset(x, expectedY))
-                        drawCircle(color = actualColor, radius = 4.5f, center = Offset(x, actualY))
+                    if (points.size == 1) {
+                        val x = left + chartWidth / 2f
+                        val point = points.first()
+                        drawCircle(expectedColor, 3.dp.toPx(), Offset(x, amountY(point.expectedCents)))
+                        drawCircle(actualColor, 2.dp.toPx(), Offset(x, amountY(point.actualCents)))
                     }
                 }
                 Row(modifier = Modifier.fillMaxWidth()) {
@@ -1488,28 +1483,30 @@ private fun SpendingTrendCard(state: LedgerUiState) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            "最高 ",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        AnimatedMoneyText(
-                            cents = peak,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            label = "trend-peak",
-                        )
-                    }
+                    Spacer(Modifier.weight(1f))
                     Text(
                         "${last.monthValue}/${last.dayOfMonth}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                TextButton(onClick = { showDailyAmounts = !showDailyAmounts }) {
+                    Text(if (showDailyAmounts) "收起每日金额" else "查看每日金额")
+                }
+                if (showDailyAmounts) {
+                    points.forEach { point ->
+                        HorizontalDivider(color = gridColor)
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("${point.date.monthValue}月${point.date.dayOfMonth}日", style = MaterialTheme.typography.labelMedium)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                LedgerAmountMetric("实际", point.actualCents, actualColor, Modifier.weight(1f))
+                                LedgerAmountMetric("预计", point.expectedCents, expectedColor, Modifier.weight(1f))
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1578,7 +1575,7 @@ private fun EmptyHistoryCard() {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(22.dp),
+        shape = MaterialTheme.shapes.large,
     ) {
         Text(
             "识别到银行收支短信后，明细会显示在这里。",
@@ -1589,10 +1586,13 @@ private fun EmptyHistoryCard() {
 }
 
 @Composable
-private fun HistoryTransactionCard(
+private fun HistoryTransactionRow(
     transaction: TransactionEntity,
     onToggle: () -> Unit,
 ) {
+    val time = Instant.ofEpochMilli(transaction.occurredAt)
+        .atZone(ZoneId.systemDefault())
+        .format(transactionTimeFormatter)
     val kindLabel = when (transaction.kind) {
         TransactionKind.EXPENSE -> "支出"
         TransactionKind.REFUND -> "退款"
@@ -1601,29 +1601,20 @@ private fun HistoryTransactionCard(
     val amountColor = when {
         transaction.isExcluded -> MaterialTheme.colorScheme.onSurfaceVariant
         transaction.kind == TransactionKind.EXPENSE -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.primary
     }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (transaction.isExcluded) {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .55f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (transaction.isExcluded) 0.dp else 1.dp),
-        shape = RoundedCornerShape(20.dp),
+    Column(
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface),
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .background(amountColor.copy(alpha = .11f), RoundedCornerShape(13.dp)),
+                        .size(36.dp)
+                        .background(amountColor.copy(alpha = .11f), MaterialTheme.shapes.small),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -1637,7 +1628,7 @@ private fun HistoryTransactionCard(
                         fontWeight = FontWeight.Bold,
                     )
                 }
-                Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                Column(modifier = Modifier.weight(1f).padding(horizontal = 10.dp)) {
                     Text(
                         transaction.merchant?.takeIf { it.isNotBlank() } ?: "${kindLabel}交易",
                         style = MaterialTheme.typography.titleMedium,
@@ -1646,7 +1637,7 @@ private fun HistoryTransactionCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        "${transaction.bank} · ${formatDateTime(transaction.occurredAt)}",
+                        "${transaction.bank} · $time",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1655,7 +1646,7 @@ private fun HistoryTransactionCard(
                     Text(
                         formatTransactionAmount(transaction),
                         color = amountColor,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
@@ -1701,7 +1692,7 @@ private fun AccountOverviewCard(state: LedgerUiState, onEdit: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        shape = RoundedCornerShape(26.dp),
+        shape = MaterialTheme.shapes.large,
     ) {
         Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1809,21 +1800,10 @@ private fun OverviewMetric(
 }
 
 @Composable
-private fun Metric(label: String, valueCents: Long, modifier: Modifier = Modifier, light: Boolean = false) {
-    Column(modifier) {
-        Text(
-            label,
-            color = if (light) Color.White.copy(alpha = .72f)
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall,
-        )
-        AnimatedMoneyText(
-            cents = valueCents,
-            color = if (light) Color.White
-                else MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.SemiBold,
-            label = "metric-$label",
-        )
+private fun LedgerAmountMetric(label: String, cents: Long, labelColor: Color, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, color = labelColor, style = MaterialTheme.typography.labelMedium)
+        Text(formatMoney(cents), style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"))
     }
 }
 
@@ -2089,6 +2069,7 @@ private val currencyFormatter = NumberFormat.getCurrencyInstance(Locale.CHINA).a
     maximumFractionDigits = 2
 }
 
+private val transactionTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private val dateTimeFormatter = DateTimeFormatter.ofPattern("M月d日 HH:mm")
 
 private fun formatMoney(cents: Long): String = synchronized(currencyFormatter) {

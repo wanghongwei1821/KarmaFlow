@@ -1,10 +1,6 @@
 package com.example.sizhang.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
-import android.os.Build
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -18,47 +14,48 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF176B5A),
+    primary = Color(0xFF22559D),
     onPrimary = Color.White,
-    primaryContainer = Color(0xFFD8F3E9),
-    onPrimaryContainer = Color(0xFF073D33),
-    secondary = Color(0xFFB96A3D),
+    primaryContainer = Color(0xFFD9E8FF),
+    onPrimaryContainer = Color(0xFF102D57),
+    secondary = Color(0xFF995022),
     onSecondary = Color.White,
     secondaryContainer = Color(0xFFFFE8D9),
     onSecondaryContainer = Color(0xFF55240A),
     tertiary = Color(0xFF5267A5),
     tertiaryContainer = Color(0xFFDDE4FF),
-    background = Color(0xFFF6F8F5),
-    onBackground = Color(0xFF17201D),
-    surface = Color(0xFFFCFDFC),
-    onSurface = Color(0xFF17201D),
-    surfaceVariant = Color(0xFFECF1EE),
-    onSurfaceVariant = Color(0xFF596661),
-    outline = Color(0xFFB8C7C1),
-    outlineVariant = Color(0xFFDCE5E1),
+    background = Color(0xFFEDF2F8),
+    onBackground = Color(0xFF18263B),
+    surface = Color(0xFFF9FBFF),
+    onSurface = Color(0xFF18263B),
+    surfaceVariant = Color(0xFFE4ECF7),
+    onSurfaceVariant = Color(0xFF485A73),
+    outline = Color(0xFF647891),
+    outlineVariant = Color(0xFFCFDBEB),
     error = Color(0xFFBA1A1A),
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF91D7C0),
-    onPrimary = Color(0xFF00382D),
-    primaryContainer = Color(0xFF075141),
-    onPrimaryContainer = Color(0xFFB3F2DA),
+    primary = Color(0xFFA9C9FF),
+    onPrimary = Color(0xFF102A51),
+    primaryContainer = Color(0xFF234980),
+    onPrimaryContainer = Color(0xFFE2EDFF),
     secondary = Color(0xFFFFB68A),
     secondaryContainer = Color(0xFF743817),
+    onSecondaryContainer = Color(0xFFFFDCC8),
     tertiary = Color(0xFFBAC6FF),
-    background = Color(0xFF0F1513),
-    onBackground = Color(0xFFDFE7E2),
-    surface = Color(0xFF171E1B),
-    onSurface = Color(0xFFDFE7E2),
-    surfaceVariant = Color(0xFF252E2A),
-    onSurfaceVariant = Color(0xFFBAC7C1),
-    outline = Color(0xFF84928C),
-    outlineVariant = Color(0xFF35423D),
+    background = Color(0xFF111A29),
+    onBackground = Color(0xFFEDF2F8),
+    surface = Color(0xFF182438),
+    onSurface = Color(0xFFEDF2F8),
+    surfaceVariant = Color(0xFF24344D),
+    onSurfaceVariant = Color(0xFFBDCCE1),
+    outline = Color(0xFF8C9DB5),
+    outlineVariant = Color(0xFF3A4B65),
 )
 
 private val LedgerTypography = Typography(
-    headlineLarge = TextStyle(fontSize = 32.sp, lineHeight = 38.sp, fontWeight = FontWeight.Bold),
+    headlineLarge = TextStyle(fontSize = 34.sp, lineHeight = 42.sp, fontWeight = FontWeight.Medium),
     headlineMedium = TextStyle(fontSize = 26.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold),
     headlineSmall = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold),
     titleLarge = TextStyle(fontSize = 20.sp, lineHeight = 26.sp, fontWeight = FontWeight.Bold),
@@ -71,22 +68,15 @@ private val LedgerTypography = Typography(
 )
 
 private val LedgerShapes = Shapes(
-    small = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-    medium = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-    large = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+    small = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
 )
 
 @Composable
 fun PrivateLedgerTheme(content: @Composable () -> Unit) {
-    val dark = isSystemInDarkTheme()
-    val colors = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        if (dark) dynamicDarkColorScheme(LocalContext.current) else dynamicLightColorScheme(LocalContext.current)
-    } else if (dark) DarkColors else LightColors
     MaterialTheme(
-        colorScheme = colors.copy(
-            background = if (dark) Color(0xFF010102) else Color(0xFFF3F4F7),
-            surface = if (dark) Color(0xFF17171B) else Color.White,
-        ),
+        colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors,
         typography = LedgerTypography,
         shapes = LedgerShapes,
         content = content,
